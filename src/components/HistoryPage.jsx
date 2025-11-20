@@ -1,0 +1,546 @@
+// src/components/HistoryPage.jsx
+import { useState, useEffect } from "react";
+import { ref, onValue, get } from "firebase/database";
+import { database } from "../firebase";
+import { useAuth } from "../contexts/AuthContext";
+import { exportToPDF, printActivities } from "../utils/pdfUtils";
+import "../CSS/HistoryPage.css";
+import eyeIcon from '../images/eye.png';
+
+
+export default function HistoryPage() {
+  const { isAdmin, getAssignedLaboratoryIds } = useAuth();
+  const [historyData, setHistoryData] = useState([]);
+  const [allHistoryEntries, setAllHistoryEntries] = useState([]);
+  const [equipmentData, setEquipmentData] = useState([]);
+  const [laboratories, setLaboratories] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filterType, setFilterType] = useState("All Types");
+
+  const [searchTerm, setSearchTerm] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(10);
+  const [selectedEntry, setSelectedEntry] = useState(null);
+  const [showDetailsModal, setShowDetailsModal] = useState(false);
+
+
+
+  // Load laboratories data
+  const loadLaboratories = async () => {
+    try {
+      const laboratoriesRef = ref(database, 'laboratories');
+      const snapshot = await get(laboratoriesRef);
+      
+      if (snapshot.exists()) {
+        const laboratoriesData = snapshot.val();
+        const laboratoriesList = Object.keys(laboratoriesData).map(key => ({
+          id: key,
+          ...laboratoriesData[key]
+        }));
+        setLaboratories(laboratoriesList);
+      }
+    } catch (error) {
+      console.error("Error loading laboratories:", error);
+    }
+  };
+
+  // Load equipment data for laboratory filtering
+  const loadEquipmentData = async () => {
+    try {
+      const categoriesRef = ref(database, 'equipment_categories');
+      const snapshot = await get(categoriesRef);
+      
+      if (snapshot.exists()) {
+        const categoriesData = snapshot.val();
+        const allEquipment = [];
+        
+        // Load equipment from each category
+        for (const categoryId in categoriesData) {
+          const equipmentsRef = ref(database, `equipment_categories/${categoryId}/equipments`);
+          const equipmentsSnapshot = await get(equipmentsRef);
+          
+          if (equipmentsSnapshot.exists()) {
+            const equipmentData = equipmentsSnapshot.val();
+            Object.keys(equipmentData).forEach(equipmentId => {
+              allEquipment.push({
+                id: equipmentId,
+                categoryId: categoryId,
+                categoryName: categoriesData[categoryId].title,
+                ...equipmentData[equipmentId]
+              });
+            });
+          }
+        }
+        
+        setEquipmentData(allEquipment);
+      }
+    } catch (error) {
+      console.error("Error loading equipment data:", error);
+    }
+  };
+
+  // Load users data to get borrower names
+  const loadUsers = async () => {
+    try {
+      const usersRef = ref(database, 'users');
+      const snapshot = await get(usersRef);
+      
+      if (snapshot.exists()) {
+        const usersData = snapshot.val();
+        const usersList = Object.keys(usersData).map(key => ({
+          id: key,
+          ...usersData[key]
+        }));
+        setUsers(usersList);
+      }
+    } catch (error) {
+      console.error("Error loading users data:", error);
+    }
+  };
+
+  // Helper function to get borrower name from userId
+  const getBorrowerName = (userId) => {
+    if (!userId) return "Unknown";
+    const user = users.find(u => u.id === userId || u.userId === userId);
+    return user?.name || user?.fullName || user?.displayName || user?.email || "Unknown";
+  };
+
+  // Load history data from Firebase
+  useEffect(() => {
+    loadLaboratories();
+    loadEquipmentData();
+    loadUsers();
+
+    const historyRef = ref(database, 'history');
+    const unsubscribe = onValue(historyRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.val();
+        const entries = Object.keys(data).map(key => ({
+          id: key,
+          ...data[key]
+        }));
+
+        entries.sort((a, b) => new Date(b.timestamp || b.returnDate || b.releasedDate || 0) - new Date(a.timestamp || a.returnDate || a.releasedDate || 0));
+        setAllHistoryEntries(entries);
+      } else {
+        setAllHistoryEntries([]);
+      }
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (allHistoryEntries.length === 0) {
+      setHistoryData([]);
+      return;
+    }
+
+    let filteredHistory = [...allHistoryEntries];
+
+    if (!isAdmin()) {
+      const assignedLabIds = getAssignedLaboratoryIds();
+      if (assignedLabIds && assignedLabIds.length > 0) {
+        filteredHistory = filteredHistory.filter(entry => {
+          if (entry.labRecordId && assignedLabIds.includes(entry.labRecordId)) {
+            return true;
+          }
+          if (entry.labId && assignedLabIds.includes(entry.labId)) {
+            return true;
+          }
+
+          // Fallback: match via equipment dataset
+          const matchingEquipment = equipmentData.find(equipment => 
+            equipment.equipmentName === entry.equipmentName ||
+            equipment.itemName === entry.equipmentName ||
+            equipment.name === entry.equipmentName ||
+            equipment.title === entry.equipmentName
+          );
+
+          if (matchingEquipment && matchingEquipment.labId) {
+            const laboratory = laboratories.find(lab => lab.labId === matchingEquipment.labId);
+            if (laboratory) {
+              return assignedLabIds.includes(laboratory.id) || assignedLabIds.includes(laboratory.labId);
+            }
+          }
+
+          return false;
+        });
+      } else {
+        filteredHistory = [];
+      }
+    }
+
+    setHistoryData(filteredHistory);
+  }, [allHistoryEntries, isAdmin, getAssignedLaboratoryIds, equipmentData, laboratories]);
+
+  // Filter and sort history data
+  const filteredHistory = historyData.filter(entry => {
+    const borrowerName = getBorrowerName(entry.userId);
+    const matchesSearch = entry.equipmentName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         entry.borrower?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         borrowerName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         entry.adviserName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         entry.action?.toLowerCase().includes(searchTerm.toLowerCase());
+
+    const matchesType = filterType === "All Types" || entry.action.includes(filterType);
+
+    return matchesSearch && matchesType;
+  });
+
+  // Pagination
+  const indexOfLastItem = currentPage * itemsPerPage;
+  const indexOfFirstItem = indexOfLastItem - itemsPerPage;
+  const currentItems = filteredHistory.slice(indexOfFirstItem, indexOfLastItem);
+  const totalPages = Math.ceil(filteredHistory.length / itemsPerPage);
+
+  const formatDate = (dateString) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    });
+  };
+
+  const formatTime = (dateString) => {
+    const date = new Date(dateString);
+    return date.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
+    });
+  };
+
+  const getStatusClass = (status) => {
+    switch (status.toLowerCase()) {
+      case 'released': return 'status-released';
+      case 'returned': return 'status-returned';
+      case 'pending': return 'status-pending';
+      case 'approved': return 'status-approved';
+      case 'rejected': return 'status-rejected';
+      default: return 'status-pending';
+    }
+  };
+
+  const handleViewDetails = (entry) => {
+    setSelectedEntry(entry);
+    setShowDetailsModal(true);
+  };
+
+  const closeDetailsModal = () => {
+    setSelectedEntry(null);
+    setShowDetailsModal(false);
+  };
+
+  const paginate = (pageNumber) => setCurrentPage(pageNumber);
+
+  // Enhanced user type detection function
+  // Helper function to get user role from userId
+  const getUserRole = (userId) => {
+    if (!userId) return null;
+    const user = users.find(u => u.id === userId || u.userId === userId);
+    return user?.role || null;
+  };
+
+  const determineUserType = (entry) => {
+    // Get userId from entry - try different possible fields
+    const userId = entry.userId || entry.details?.originalRequest?.userId || null;
+    
+    // If we have userId, look up the user's role from the users database
+    if (userId) {
+      const userRole = getUserRole(userId);
+      
+      // Check if role indicates faculty (admin or laboratory_manager are considered faculty)
+      if (userRole === 'admin' || userRole === 'laboratory_manager') {
+        return true; // Faculty
+      }
+      
+      // If role is explicitly 'student', return false
+      if (userRole === 'student') {
+        return false; // Student
+      }
+    }
+    
+    // Fallback: If user not found or no role, default to student
+    // This is safer than pattern matching - assumes student by default
+    return false;
+  };
+
+
+
+
+  if (loading) {
+    return (
+      <div className="history-page">
+        <div className="loading-container">
+          <div className="loading-icon">📊</div>
+          <div className="loading-text">Loading history data...</div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="history-page">
+      {/* Header */}
+      <div className="history-header">
+        <h1 className="history-title">Equipment Borrowing History</h1>
+        <div className="header-actions">
+          <button 
+            className="action-button"
+            onClick={() => {
+              const formatHistory = (history) => {
+                return history.map((entry, index) => [
+                  index + 1,
+                  entry.action || 'N/A',
+                  entry.equipmentName || 'N/A',
+                  getBorrowerName(entry.userId) || 'N/A',
+                  entry.adviserName || 'N/A',
+                  entry.status || 'N/A',
+                  formatDate(entry.releasedDate) + ' ' + formatTime(entry.releasedDate),
+                  entry.returnDate ? (formatDate(entry.returnDate) + ' ' + formatTime(entry.returnDate)) : 'N/A',
+                  entry.condition || 'N/A'
+                ]);
+              };
+              exportToPDF(filteredHistory, 'Equipment Borrowing History', formatHistory);
+            }}
+          >
+            📄 Export PDF
+          </button>
+          <button 
+            className="action-button"
+            onClick={() => {
+              const formatHistory = (history) => {
+                return history.map((entry) => ({
+                  action: entry.action || 'N/A',
+                  equipmentName: entry.equipmentName || 'N/A',
+                  borrower: getBorrowerName(entry.userId) || 'N/A',
+                  adviserName: entry.adviserName || 'N/A',
+                  status: entry.status || 'N/A',
+                  releasedDate: formatDate(entry.releasedDate) + ' ' + formatTime(entry.releasedDate),
+                  returnDate: entry.returnDate ? (formatDate(entry.returnDate) + ' ' + formatTime(entry.returnDate)) : 'N/A',
+                  condition: entry.condition || 'N/A'
+                }));
+              };
+              printActivities(filteredHistory, 'Equipment Borrowing History', formatHistory);
+            }}
+          >
+            🖨️ Print
+          </button>
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div className="filters-container">
+        {/* Search */}
+        <div className="search-container">
+          <input
+            type="text"
+            placeholder="Search equipment..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="search-input"
+          />
+        </div>
+
+        {/* Type Filter */}
+        <select
+          value={filterType}
+          onChange={(e) => setFilterType(e.target.value)}
+          className="filter-select"
+        >
+          <option value="All Types">All Types</option>
+          <option value="Released">Released</option>
+          <option value="Returned">Returned</option>
+          <option value="Rejected">Rejected</option>
+        </select>
+
+
+
+
+      </div>
+
+      {/* Table */}
+      <div className="table-container">
+        {currentItems.length > 0 ? (
+          <>
+            <div className="table-wrapper">
+              <table className="history-table">
+                <thead className="table-header">
+                  <tr>
+                    <th>Action</th>
+                    <th>Equipment Name</th>
+                    <th>Borrower Name</th>
+                    <th>Instructor Name</th>
+                    <th>Status</th>
+                    <th>Released Date</th>
+                    <th>Return Date</th>
+                    <th>Condition</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="table-body">
+                  {currentItems.map((entry) => (
+                    <tr key={entry.id}>
+                      <td className="table-cell">{entry.action}</td>
+                      <td className="table-cell equipment-name">{entry.equipmentName}</td>
+                      <td className="table-cell">{getBorrowerName(entry.userId)}</td>
+                      <td className="table-cell">{entry.adviserName || "Unknown"}</td>
+                      <td className="table-cell">
+                        <span className={`status-badge ${getStatusClass(entry.status)}`}>
+                          {entry.status}
+                        </span>
+                      </td>
+                      <td className="table-cell date-cell">
+                        <div>{formatDate(entry.releasedDate)}</div>
+                        <div className="date-time">{formatTime(entry.releasedDate)}</div>
+                      </td>
+                      <td className="table-cell date-cell">
+                        {entry.returnDate ? (
+                          <>
+                            <div>{formatDate(entry.returnDate)}</div>
+                            <div className="date-time">{formatTime(entry.returnDate)}</div>
+                          </>
+                        ) : (
+                          '-'
+                        )}
+                      </td>
+                      <td className="table-cell date-cell">{entry.condition}</td>
+                      <td className="table-cell">
+                        <button
+                          onClick={() => handleViewDetails(entry)}
+                          className="view-button"
+                          title="View Details"
+                        >
+                           <img src={eyeIcon} alt="View" style={{ width: '18px', height: '18px' }} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination */}
+            <div className="pagination-container">
+              <div className="pagination-info">
+                Showing {indexOfFirstItem + 1} to {Math.min(indexOfLastItem, filteredHistory.length)} of {filteredHistory.length} entries
+              </div>
+              
+              <div className="pagination-controls">
+                <button
+                  onClick={() => paginate(currentPage - 1)}
+                  disabled={currentPage === 1}
+                  className="pagination-button"
+                >
+                  Previous
+                </button>
+                
+                {[...Array(totalPages)].map((_, index) => (
+                  <button
+                    key={index + 1}
+                    onClick={() => paginate(index + 1)}
+                    className={`pagination-button ${currentPage === index + 1 ? 'active' : ''}`}
+                  >
+                    {index + 1}
+                  </button>
+                ))}
+                
+                <button
+                  onClick={() => paginate(currentPage + 1)}
+                  disabled={currentPage === totalPages}
+                  className="pagination-button"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="empty-state">
+            <div className="empty-icon">📊</div>
+            <h3 className="empty-title">No History Found</h3>
+            <p className="empty-message">
+              {searchTerm || filterType !== "All Types"
+                ? "No activities match your current filters."
+                : "No borrowing activities have been recorded yet."
+              }
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Enhanced Details Modal with Tabs */}
+      {showDetailsModal && selectedEntry && (
+        <div className="modal-overlay" onClick={closeDetailsModal}>
+          <div className="modal-content enhanced-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2 className="modal-title">Equipment Details - {selectedEntry.equipmentName}</h2>
+              <button onClick={closeDetailsModal} className="modal-close">×</button>
+            </div>
+            
+            <div className="modal-body">
+              <div className="tab-content">
+                  <div className="modal-details">
+                    <div className="detail-item">
+                      <div className="detail-label">Action:</div>
+                      <div className="detail-value">{selectedEntry.action}</div>
+                    </div>
+                    <div className="detail-item">
+                      <div className="detail-label">Equipment:</div>
+                      <div className="detail-value">{selectedEntry.equipmentName}</div>
+                    </div>
+                    <div className="detail-item">
+                      <div className="detail-label">Borrower Name:</div>
+                      <div className="detail-value highlight-text">{getBorrowerName(selectedEntry.userId)}</div>
+                    </div>
+                    <div className="detail-item">
+                      <div className="detail-label">Instructor Name:</div>
+                      <div className="detail-value highlight-text">{selectedEntry.adviserName || "Unknown"}</div>
+                    </div>
+                    <div className="detail-item">
+                      <div className="detail-label">Status:</div>
+                      <div className="detail-value">
+                        <span className={`status-badge ${getStatusClass(selectedEntry.status)}`}>
+                          {selectedEntry.status}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="detail-item">
+                      <div className="detail-label">Condition:</div>
+                      <div className="detail-value">{selectedEntry.condition}</div>
+                    </div>
+                    <div className="detail-item">
+                      <div className="detail-label">Released Date:</div>
+                      <div className="detail-value">
+                        {formatDate(selectedEntry.releasedDate)} at {formatTime(selectedEntry.releasedDate)}
+                      </div>
+                    </div>
+                    {selectedEntry.returnDate && (
+                      <div className="detail-item">
+                        <div className="detail-label">Return Date:</div>
+                        <div className="detail-value">
+                          {formatDate(selectedEntry.returnDate)} at {formatTime(selectedEntry.returnDate)}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+            </div>
+
+            <div className="modal-footer">
+              <button onClick={closeDetailsModal} className="close-button">
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

@@ -1,0 +1,1919 @@
+// src/components/EquipmentPage.jsx
+import React, { useState, useEffect, useCallback } from "react";
+import { ref, push, onValue, remove, update, get } from "firebase/database";
+import { database } from "../firebase";
+import { useAuth } from "../contexts/AuthContext";
+// Import EquipmentMaintenance - adjust path as needed
+import EquipmentMaintenance from "./equipment/EquipmentMaintenance";
+import "../CSS/Equipment.css";
+import "../CSS/HistoryPage.css";
+
+export default function EquipmentPage() {
+  const { isAdmin, getAssignedLaboratoryIds, assignedLaboratories, isLaboratoryManager } = useAuth();
+  const [categories, setCategories] = useState([]);
+  const [laboratories, setLaboratories] = useState([]);
+  const [equipments, setEquipments] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [selectedCategory, setSelectedCategory] = useState("");
+  const [showAddCategoryForm, setShowAddCategoryForm] = useState(false);
+  const [showAddEquipmentForm, setShowAddEquipmentForm] = useState(false);
+  const [editingEquipment, setEditingEquipment] = useState(null);
+  const [editingCategory, setEditingCategory] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [isSubmittingEquipment, setIsSubmittingEquipment] = useState(false);
+  const [isSubmittingCategory, setIsSubmittingCategory] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [showErrorModal, setShowErrorModal] = useState(false);
+  const [feedbackMessage, setFeedbackMessage] = useState("");
+  const [activeTab, setActiveTab] = useState("categories");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [laboratoryFilter, setLaboratoryFilter] = useState("");
+  
+  const [categoryFormData, setCategoryFormData] = useState({
+    title: "",
+    description: "",
+    labId: "",
+    labRecordId: "",
+    labName: ""
+  });
+
+  const [equipmentFormData, setEquipmentFormData] = useState({
+    name: "",
+    model: "",
+    serialNumber: "",
+    status: "Available",
+    condition: "Good",
+    location: "",
+    purchaseDate: "",
+    warrantyExpiry: "",
+    assignedTo: "",
+    notes: "",
+    categoryId: "",
+    labId: "",
+    labRecordId: "",
+    laboratory: "",
+    quantity: "1",
+    imageUrl: ""
+  });
+  
+  const [equipmentImage, setEquipmentImage] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
+  const [historyData, setHistoryData] = useState([]);
+  const [showUsageReportModal, setShowUsageReportModal] = useState(false);
+  const [selectedEquipmentForReport, setSelectedEquipmentForReport] = useState(null);
+
+  const fetchCategories = useCallback(() => {
+    try {
+      setLoading(true);
+      const categoriesRef = ref(database, 'equipment_categories');
+      
+      onValue(categoriesRef, (snapshot) => {
+        const data = snapshot.val();
+        if (data) {
+          const categoryList = Object.keys(data).map(key => ({
+            id: key,
+            ...data[key]
+          }));
+          
+          const augmentedCategories = categoryList.map(category => {
+            if (category.labRecordId && category.labName) {
+              return category;
+            }
+
+            const matchingLab = laboratories.find(
+              lab => lab.id === category.labRecordId || lab.labId === category.labId
+            );
+
+            return {
+              ...category,
+              labRecordId: category.labRecordId || matchingLab?.id || "",
+              labName: category.labName || matchingLab?.labName || ""
+            };
+          });
+          
+          // Filter categories based on user role and lab assignment
+          let filteredCategories = augmentedCategories;
+          if (!isAdmin()) {
+            const assignedLabIds = getAssignedLaboratoryIds();
+            if (assignedLabIds) {
+              // Filter categories to only show those from assigned laboratories
+              filteredCategories = augmentedCategories.filter(category => {
+                const lab = laboratories.find(l => l.labId === category.labId);
+                return lab && assignedLabIds.includes(lab.id);
+              });
+            }
+          }
+          
+          setCategories(filteredCategories);
+        } else {
+          setCategories([]);
+        }
+        setLoading(false);
+      });
+    } catch (error) {
+      console.error("Error fetching categories:", error);
+      setLoading(false);
+    }
+  }, [isAdmin, getAssignedLaboratoryIds, laboratories]);
+
+  const fetchLaboratories = useCallback(() => {
+    try {
+      const laboratoriesRef = ref(database, 'laboratories');
+      
+      onValue(laboratoriesRef, (snapshot) => {
+        const data = snapshot.val();
+        if (data) {
+          const laboratoryList = Object.keys(data).map(key => ({
+            id: key,
+            ...data[key]
+          }));
+          setLaboratories(laboratoryList);
+        } else {
+          setLaboratories([]);
+        }
+      });
+    } catch (error) {
+      console.error("Error fetching laboratories:", error);
+    }
+  }, []);
+
+  const fetchUsers = useCallback(async () => {
+    try {
+      const usersRef = ref(database, 'users');
+      const snapshot = await get(usersRef);
+      
+      if (snapshot.exists()) {
+        const usersData = snapshot.val();
+        const fetchedUsers = [];
+        
+        // Convert the object to array with IDs
+        Object.keys(usersData).forEach((userId) => {
+          const userData = usersData[userId];
+          fetchedUsers.push({
+            id: userId,
+            name: userData.name || "Unknown",
+            email: userData.email || "No email",
+            role: userData.role || "user",
+            ...userData
+          });
+        });
+        
+        setUsers(fetchedUsers);
+      } else {
+        setUsers([]);
+      }
+    } catch (error) {
+      console.error("Error fetching users:", error);
+    }
+  }, []);
+
+  // Fetch laboratories and users from Firebase
+  useEffect(() => {
+    fetchLaboratories();
+    fetchUsers();
+  }, [fetchLaboratories, fetchUsers]);
+
+  // Re-fetch categories when laboratories change (for filtering)
+  useEffect(() => {
+    fetchCategories();
+  }, [fetchCategories]);
+
+  // Fetch equipments when category is selected
+  useEffect(() => {
+    if (selectedCategory) {
+      fetchEquipments(selectedCategory);
+    } else {
+      setEquipments([]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCategory]);
+
+  // Debug: Check assigned laboratories
+  useEffect(() => {
+    if (isLaboratoryManager()) {
+      console.log('[EquipmentPage] Lab Manager - Assigned Laboratories:', assignedLaboratories);
+      console.log('[EquipmentPage] isLaboratoryManager:', isLaboratoryManager());
+    }
+  }, [assignedLaboratories, isLaboratoryManager]);
+
+  // Load history data for usage reports
+  useEffect(() => {
+    const historyRef = ref(database, 'history');
+    
+    const unsubscribe = onValue(historyRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        const historyList = Object.keys(data).map(key => ({
+          id: key,
+          ...data[key]
+        }));
+        setHistoryData(historyList);
+      } else {
+        setHistoryData([]);
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!selectedCategory) return;
+
+    const category = categories.find(cat => cat.id === selectedCategory);
+    if (!category) return;
+
+    const matchedLab = laboratories.find(
+      lab => lab.id === category.labRecordId || lab.labId === category.labId
+    );
+
+    const resolvedLabId = category.labId || matchedLab?.labId || "";
+    const resolvedLabRecordId = category.labRecordId || matchedLab?.id || "";
+    const resolvedLabName = category.labName || matchedLab?.labName || "";
+
+    setEquipmentFormData(prev => {
+      if (
+        prev.labId === resolvedLabId &&
+        prev.labRecordId === resolvedLabRecordId &&
+        prev.laboratory === resolvedLabName
+      ) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        labId: resolvedLabId,
+        labRecordId: resolvedLabRecordId,
+        laboratory: resolvedLabName
+      };
+    });
+  }, [selectedCategory, categories, laboratories]);
+
+  const fetchEquipments = (categoryId) => {
+    try {
+      const equipmentsRef = ref(database, `equipment_categories/${categoryId}/equipments`);
+      
+      onValue(equipmentsRef, (snapshot) => {
+        const data = snapshot.val();
+        if (data) {
+          const equipmentList = Object.keys(data).map(key => ({
+            id: key,
+            ...data[key]
+          }));
+          
+          // Filter equipment based on user role and assigned laboratories
+          let filteredEquipment = equipmentList;
+          if (!isAdmin()) {
+            const assignedLabIds = getAssignedLaboratoryIds();
+            if (assignedLabIds) {
+              // Filter equipment to only show those from assigned laboratories
+              filteredEquipment = equipmentList.filter(equipment => {
+                // Find the laboratory for this equipment
+                const lab = laboratories.find(l => l.labId === equipment.labId);
+                return lab && assignedLabIds.includes(lab.id);
+              });
+            }
+          }
+          
+          setEquipments(filteredEquipment);
+        } else {
+          setEquipments([]);
+        }
+      });
+    } catch (error) {
+      console.error("Error fetching equipments:", error);
+    }
+  };
+
+  const handleCategoryInputChange = (e) => {
+    const { name, value } = e.target;
+
+    if (name === "labId") {
+      const selectedLab = laboratories.find((lab) => lab.labId === value || lab.id === value);
+
+      setCategoryFormData(prev => ({
+        ...prev,
+        labId: value,
+        labRecordId: selectedLab?.id || "",
+        labName: selectedLab?.labName || ""
+      }));
+      return;
+    }
+    
+    setCategoryFormData(prev => ({
+      ...prev,
+      [name]: value
+    }));
+  };
+
+  const handleEquipmentInputChange = (e) => {
+    const { name, value } = e.target;
+    
+    let updatedData = { [name]: value };
+    
+    // Auto-populate Assigned To when laboratory is selected
+    if (name === 'quantity') {
+      const sanitizedValue = value.replace(/[^\d]/g, "");
+      updatedData.quantity = sanitizedValue;
+    }
+
+    if (name === 'labId') {
+      const selectedLab = laboratories.find(lab => lab.labId === value || lab.id === value);
+
+      updatedData.labRecordId = selectedLab?.id || "";
+      updatedData.laboratory = selectedLab?.labName || "";
+
+      if (selectedLab && selectedLab.managerUserId) {
+        // Find the manager user
+        const managerUser = users.find(user => user.id === selectedLab.managerUserId);
+        
+        if (managerUser) {
+          updatedData.assignedTo = managerUser.name;
+        }
+      } else {
+        // Clear assignedTo if no manager is assigned to the lab
+        updatedData.assignedTo = "";
+      }
+    }
+    
+    setEquipmentFormData(prev => ({
+      ...prev,
+      ...updatedData
+    }));
+  };
+  
+  const handleImageChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        alert('Please select a valid image file');
+        return;
+      }
+      
+      // Validate file size (max 2MB for base64 to avoid database bloat)
+      if (file.size > 2 * 1024 * 1024) {
+        alert('Image size should be less than 2MB for optimal performance');
+        return;
+      }
+      
+      setEquipmentImage(file);
+      
+      // Create preview and convert to base64
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreview(reader.result);
+        // base64 string is stored in reader.result and will be used in uploadEquipmentImage
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+  
+  const uploadEquipmentImage = async (file) => {
+    try {
+      // Convert image to base64 string for storing in database
+      console.log("Converting image to base64...");
+      
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const base64String = reader.result;
+          console.log("Image converted to base64 successfully");
+          resolve(base64String);
+        };
+        reader.onerror = (error) => {
+          console.error("Error reading file:", error);
+          reject(error);
+        };
+        reader.readAsDataURL(file);
+      });
+    } catch (error) {
+      console.error("Error converting image:", error);
+      return "";
+    }
+  };
+
+  const handleCategorySubmit = async (e) => {
+    e.preventDefault();
+    
+    if (!categoryFormData.title.trim()) {
+      alert("Please enter a category title");
+      return;
+    }
+
+    if (isAdmin() && !categoryFormData.labId.trim()) {
+      setFeedbackMessage("Please select a laboratory for this category");
+      setShowErrorModal(true);
+      return;
+    }
+
+    setIsSubmittingCategory(true);
+
+    // Auto-assign labId for Lab Managers
+    let submissionData = { ...categoryFormData };
+
+    if (!isAdmin()) {
+      const assignedLabIds = getAssignedLaboratoryIds();
+      if (assignedLabIds && assignedLabIds.length > 0) {
+        // For Lab Managers, use their first assigned lab
+        const assignedLab = laboratories.find(lab => assignedLabIds.includes(lab.id));
+        if (assignedLab) {
+          submissionData.labId = assignedLab.labId;
+          submissionData.labRecordId = assignedLab.id;
+          submissionData.labName = assignedLab.labName || "";
+        }
+      }
+    } else if (submissionData.labId) {
+      const selectedLab = laboratories.find((lab) => lab.labId === submissionData.labId || lab.id === submissionData.labId);
+      if (selectedLab) {
+        submissionData.labId = selectedLab.labId;
+        submissionData.labRecordId = selectedLab.id;
+        submissionData.labName = selectedLab.labName || "";
+      }
+    }
+
+    try {
+      if (editingCategory) {
+        const categoryRef = ref(database, `equipment_categories/${editingCategory.id}`);
+        await update(categoryRef, {
+          ...submissionData,
+          updatedAt: new Date().toISOString()
+        });
+        setFeedbackMessage("Category updated successfully!");
+        setShowSuccessModal(true);
+      } else {
+        const categoriesRef = ref(database, 'equipment_categories');
+        await push(categoriesRef, {
+          ...submissionData,
+          availableCount: 0,
+          totalCount: 0,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        });
+        setFeedbackMessage("Category added successfully!");
+        setShowSuccessModal(true);
+      }
+      
+      // Close form after successful submission
+      setTimeout(() => {
+        resetCategoryForm();
+        setShowSuccessModal(false);
+      }, 1500);
+      
+    } catch (error) {
+      console.error("Error saving category:", error);
+      setFeedbackMessage(`Error saving category: ${error.message}. Please try again.`);
+      setShowErrorModal(true);
+    } finally {
+      setIsSubmittingCategory(false);
+    }
+  };
+
+  const handleEquipmentSubmit = async (e) => {
+    e.preventDefault();
+    
+    if (!equipmentFormData.name.trim() || !selectedCategory) {
+      setFeedbackMessage("Please fill in required fields and select a category");
+      setShowErrorModal(true);
+      return;
+    }
+
+    setIsSubmittingEquipment(true);
+
+    try {
+      // Upload image if one was selected (optional, don't block if it fails)
+      let imageUrl = equipmentFormData.imageUrl;
+      if (equipmentImage) {
+        console.log("Uploading image...");
+        imageUrl = await uploadEquipmentImage(equipmentImage);
+        if (imageUrl) {
+          console.log("Image uploaded successfully:", imageUrl);
+        } else {
+          console.warn("Image upload failed but continuing with equipment save");
+        }
+      }
+      
+      const selectedCategoryData = categories.find(cat => cat.id === selectedCategory);
+      const categoryLabId = selectedCategoryData?.labId || "";
+      const categoryLabRecordId = selectedCategoryData?.labRecordId || "";
+      const categoryLabName = selectedCategoryData?.labName || "";
+
+      const matchedLab = laboratories.find(
+        lab =>
+          lab.id === categoryLabRecordId ||
+          lab.labId === categoryLabId ||
+          lab.labId === equipmentFormData.labId ||
+          lab.id === equipmentFormData.labRecordId
+      );
+
+      const resolvedLabId = categoryLabId || equipmentFormData.labId || matchedLab?.labId || "";
+      let resolvedLabRecordId = categoryLabRecordId || equipmentFormData.labRecordId || matchedLab?.id || "";
+      let resolvedLabName = categoryLabName || equipmentFormData.laboratory || matchedLab?.labName || "";
+
+      if (!resolvedLabRecordId && resolvedLabId) {
+        const labById = laboratories.find(lab => lab.labId === resolvedLabId || lab.id === resolvedLabId);
+        if (labById) {
+          resolvedLabRecordId = labById.id;
+          if (!resolvedLabName) {
+            resolvedLabName = labById.labName || "";
+          }
+        }
+      }
+
+      const parsedQuantity = Math.max(1, parseInt(equipmentFormData.quantity, 10) || 1);
+
+      const equipmentData = {
+        ...equipmentFormData,
+        quantity: parsedQuantity,
+        labId: resolvedLabId,
+        labRecordId: resolvedLabRecordId,
+        laboratory: resolvedLabName,
+        categoryId: selectedCategory,
+        imageUrl: imageUrl || ""
+      };
+
+      console.log("Saving equipment data:", equipmentData);
+
+      if (editingEquipment) {
+        const equipmentRef = ref(database, `equipment_categories/${selectedCategory}/equipments/${editingEquipment.id}`);
+        await update(equipmentRef, {
+          ...equipmentData,
+          updatedAt: new Date().toISOString()
+        });
+        setFeedbackMessage("Equipment updated successfully!");
+        setShowSuccessModal(true);
+      } else {
+        const equipmentsRef = ref(database, `equipment_categories/${selectedCategory}/equipments`);
+        await push(equipmentsRef, {
+          ...equipmentData,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        });
+        
+        await updateCategoryCounts(selectedCategory);
+        setFeedbackMessage("Equipment added successfully!");
+        setShowSuccessModal(true);
+      }
+      
+      // Close form after successful submission
+      setTimeout(() => {
+        resetEquipmentForm();
+        setShowSuccessModal(false);
+        setIsSubmittingEquipment(false);
+      }, 1500);
+      
+    } catch (error) {
+      console.error("Error saving equipment:", error);
+      setFeedbackMessage(`Error saving equipment: ${error.message}. Please try again.`);
+      setShowErrorModal(true);
+      setIsSubmittingEquipment(false);
+    }
+  };
+
+  const updateCategoryCounts = async (categoryId) => {
+    try {
+      const equipmentsRef = ref(database, `equipment_categories/${categoryId}/equipments`);
+      onValue(equipmentsRef, async (snapshot) => {
+        const data = snapshot.val();
+        const totalCount = data
+          ? Object.values(data).reduce((sum, eq) => sum + (Number(eq.quantity) || 1), 0)
+          : 0;
+        const availableCount = data
+          ? Object.values(data).reduce((sum, eq) => {
+              const quantity = Number(eq.quantity) || 1;
+              return (eq.status === 'Available' || eq.status === 'available') ? sum + quantity : sum;
+            }, 0)
+          : 0;
+        
+        const categoryRef = ref(database, `equipment_categories/${categoryId}`);
+        await update(categoryRef, {
+          totalCount,
+          availableCount
+        });
+      }, { onlyOnce: true });
+    } catch (error) {
+      console.error("Error updating category counts:", error);
+    }
+  };
+
+  // Helper function to get user role from userId
+  const getUserRole = (userId) => {
+    if (!userId) return null;
+    const user = users.find(u => u.id === userId || u.userId === userId);
+    return user?.role || null;
+  };
+
+  // Determine if user is faculty or student
+  const determineUserType = (entry) => {
+    const userId = entry.userId || entry.details?.originalRequest?.userId || null;
+    
+    if (userId) {
+      const userRole = getUserRole(userId);
+      
+      if (userRole === 'admin' || userRole === 'laboratory_manager') {
+        return true; // Faculty
+      }
+      
+      if (userRole === 'student') {
+        return false; // Student
+      }
+    }
+    
+    return false; // Default to student
+  };
+
+  // Calculate usage data for equipment
+  const calculateUsageData = (equipmentName) => {
+    const equipmentHistory = historyData.filter(entry => 
+      entry.equipmentName === equipmentName
+    );
+
+    const totalBorrowings = equipmentHistory.filter(entry => 
+      entry.action === "Item Released"
+    ).length;
+
+    let studentBorrowings = 0;
+    let facultyBorrowings = 0;
+
+    equipmentHistory.forEach(entry => {
+      if (entry.action === "Item Released") {
+        const isFaculty = determineUserType(entry);
+        
+        if (isFaculty) {
+          facultyBorrowings++;
+        } else {
+          studentBorrowings++;
+        }
+      }
+    });
+
+    return {
+      total: totalBorrowings,
+      students: studentBorrowings,
+      faculty: facultyBorrowings
+    };
+  };
+
+  // Calculate usage statistics
+  const calculateUsageStatistics = (equipmentName) => {
+    const equipmentHistory = historyData.filter(entry => 
+      entry.equipmentName === equipmentName
+    );
+
+    if (equipmentHistory.length === 0) {
+      return {
+        mostActivePeriod: "No data available",
+        averageUsage: "0 times/month",
+        utilizationRate: "0%"
+      };
+    }
+
+    // Calculate most active period (month with most borrowings)
+    const monthlyData = {};
+    equipmentHistory.forEach(entry => {
+      if (entry.action === "Item Released" && entry.timestamp) {
+        const date = new Date(entry.timestamp);
+        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        monthlyData[monthKey] = (monthlyData[monthKey] || 0) + 1;
+      }
+    });
+
+    const mostActiveMonth = Object.entries(monthlyData).reduce((max, [month, count]) => 
+      count > max.count ? { month, count } : max, 
+      { month: "No data", count: 0 }
+    );
+
+    // Format the most active period
+    const formatMonth = (monthKey) => {
+      if (monthKey === "No data") return "No data available";
+      const [year, month] = monthKey.split('-');
+      const monthNames = ["January", "February", "March", "April", "May", "June",
+                         "July", "August", "September", "October", "November", "December"];
+      return `${monthNames[parseInt(month) - 1]} ${year}`;
+    };
+
+    // Calculate average usage per month
+    const totalMonths = Object.keys(monthlyData).length;
+    const totalBorrowings = Object.values(monthlyData).reduce((sum, count) => sum + count, 0);
+    const averageUsage = totalMonths > 0 ? (totalBorrowings / totalMonths).toFixed(1) : "0";
+
+    // Calculate utilization rate (percentage of months with activity)
+    const allMonths = Object.keys(monthlyData);
+    const monthsWithActivity = allMonths.filter(month => monthlyData[month] > 0).length;
+    const utilizationRate = allMonths.length > 0 
+      ? ((monthsWithActivity / allMonths.length) * 100).toFixed(0)
+      : "0";
+
+    return {
+      mostActivePeriod: formatMonth(mostActiveMonth.month),
+      averageUsage: `${averageUsage} times/month`,
+      utilizationRate: `${utilizationRate}%`
+    };
+  };
+
+  const handleViewUsageReport = (equipment) => {
+    setSelectedEquipmentForReport(equipment);
+    setShowUsageReportModal(true);
+  };
+
+  const handleEditCategory = (category) => {
+    setEditingCategory(category);
+    setCategoryFormData({
+      title: category.title || "",
+      description: category.description || "",
+      labId: category.labId || "",
+      labRecordId: category.labRecordId || "",
+      labName: category.labName || ""
+    });
+    setShowAddCategoryForm(true);
+  };
+
+  const handleEditEquipment = (equipment) => {
+    setEditingEquipment(equipment);
+    
+    // Auto-populate assignedTo if labId exists and has a manager
+    let assignedTo = equipment.assignedTo || "";
+    if (equipment.labId && !assignedTo) {
+      const selectedLab = laboratories.find(lab => lab.labId === equipment.labId);
+      if (selectedLab && selectedLab.managerUserId) {
+        const managerUser = users.find(user => user.id === selectedLab.managerUserId);
+        if (managerUser) {
+          assignedTo = managerUser.name;
+        }
+      }
+    }
+    
+    setEquipmentFormData({
+      name: equipment.name || "",
+      model: equipment.model || "",
+      serialNumber: equipment.serialNumber || "",
+      status: equipment.status || "Available",
+      condition: equipment.condition || "Good",
+      location: equipment.location || "",
+      purchaseDate: equipment.purchaseDate || "",
+      warrantyExpiry: equipment.warrantyExpiry || "",
+      assignedTo: assignedTo,
+      notes: equipment.notes || "",
+      categoryId: equipment.categoryId || "",
+      labId: equipment.labId || "",
+      labRecordId: equipment.labRecordId || "",
+      laboratory: equipment.laboratory || "",
+      quantity: equipment.quantity ? String(equipment.quantity) : "1",
+      imageUrl: equipment.imageUrl || ""
+    });
+    setEquipmentImage(null);
+    // If imageUrl is a base64 string (starts with data:), use it as preview
+    // Otherwise it might be empty or a URL
+    setImagePreview(equipment.imageUrl && equipment.imageUrl.startsWith('data:') ? equipment.imageUrl : null);
+    setShowAddEquipmentForm(true);
+  };
+
+  const handleDeleteCategory = async (categoryId) => {
+    if (window.confirm("Are you sure you want to delete this category? This will also delete all equipment in this category.")) {
+      try {
+        const categoryRef = ref(database, `equipment_categories/${categoryId}`);
+        await remove(categoryRef);
+        alert("Category deleted successfully!");
+        if (selectedCategory === categoryId) {
+          setSelectedCategory("");
+          setEquipments([]);
+        }
+      } catch (error) {
+        console.error("Error deleting category:", error);
+        alert("Error deleting category. Please try again.");
+      }
+    }
+  };
+
+  const handleDeleteEquipment = async (equipmentId) => {
+    if (window.confirm("Are you sure you want to delete this equipment?")) {
+      try {
+        const equipmentRef = ref(database, `equipment_categories/${selectedCategory}/equipments/${equipmentId}`);
+        await remove(equipmentRef);
+        await updateCategoryCounts(selectedCategory);
+        alert("Equipment deleted successfully!");
+      } catch (error) {
+        console.error("Error deleting equipment:", error);
+        alert("Error deleting equipment. Please try again.");
+      }
+    }
+  };
+
+  const resetCategoryForm = () => {
+    setCategoryFormData({
+      title: "",
+      description: "",
+      labId: "",
+      labRecordId: "",
+      labName: ""
+    });
+    setShowAddCategoryForm(false);
+    setEditingCategory(null);
+  };
+
+  const resetEquipmentForm = () => {
+    setEquipmentFormData({
+      name: "",
+      model: "",
+      serialNumber: "",
+      status: "Available",
+      condition: "Good",
+      location: "",
+      purchaseDate: "",
+      warrantyExpiry: "",
+      assignedTo: "",
+      notes: "",
+      categoryId: "",
+      labId: "",
+      labRecordId: "",
+      laboratory: "",
+      quantity: "1",
+      imageUrl: ""
+    });
+    setEquipmentImage(null);
+    setImagePreview(null);
+    setShowAddEquipmentForm(false);
+    setEditingEquipment(null);
+  };
+
+  const getStatusColor = (status) => {
+    switch (status) {
+      case "Available": return "#10b981";
+      case "In Use": return "#f59e0b";
+      case "Maintenance": return "#ef4444";
+      case "Retired": return "#6b7280";
+      default: return "#6b7280";
+    }
+  };
+
+  const getWarrantyStatus = (warrantyExpiry) => {
+    if (!warrantyExpiry) return null;
+    
+    const today = new Date();
+    const warranty = new Date(warrantyExpiry);
+    const diffDays = Math.ceil((warranty - today) / (1000 * 60 * 60 * 24));
+    
+    if (diffDays < 0) return { status: 'expired', text: 'Expired', color: '#ef4444' };
+    if (diffDays <= 30) return { status: 'warning', text: `${diffDays}d left`, color: '#f59e0b' };
+    return { status: 'valid', text: 'Valid', color: '#10b981' };
+  };
+
+  // Filter equipments based on search term and laboratory filter
+  const filteredEquipments = equipments.filter(equipment => {
+    const matchesSearch = equipment.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      equipment.model?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      equipment.serialNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      equipment.location?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      equipment.assignedTo?.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    const matchesLaboratory = !laboratoryFilter || equipment.labId === laboratoryFilter;
+    
+    return matchesSearch && matchesLaboratory;
+  });
+
+  // Export equipment data to CSV
+  const exportEquipmentData = () => {
+    if (equipments.length === 0) {
+      alert("No equipment data to export");
+      return;
+    }
+
+    const csvData = equipments.map(equipment => ({
+      Name: equipment.name,
+      Model: equipment.model,
+      'Serial Number': equipment.serialNumber,
+      Status: equipment.status,
+      Condition: equipment.condition,
+      Location: equipment.location,
+      'Purchase Date': equipment.purchaseDate,
+      'Expiration Date': equipment.warrantyExpiry,
+      'Assigned To': equipment.assignedTo,
+      Notes: equipment.notes
+    }));
+
+    const csvContent = [
+      Object.keys(csvData[0]).join(','),
+      ...csvData.map(row => Object.values(row).map(value => `"${value || ''}"`).join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `equipment_export_${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+  };
+
+  if (loading) {
+    return (
+      <div className="loading-container">
+        <div className="loading-content">
+          <div className="loading-spinner"></div>
+          <div className="loading-text">Loading laboratory equipment...</div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="equipment-page">
+      {/* Header */}
+      <div className="page-header">
+        <div style={{ flex: 1 }}>
+          <h1 className="page-title">Laboratory Equipment Management</h1>
+          <p className="page-subtitle">Manage equipment categories, individual laboratory equipment, and maintenance schedules.</p>
+        </div>
+        {isLaboratoryManager() && (
+          <div style={{ 
+            display: 'flex', 
+            flexDirection: 'column', 
+            alignItems: 'flex-end',
+            gap: '8px',
+            minWidth: '200px',
+            flexShrink: 0,
+            padding: '12px',
+            backgroundColor: '#f9fafb',
+            borderRadius: '8px',
+            border: '1px solid #e5e7eb'
+          }}>
+            {assignedLaboratories && assignedLaboratories.length > 0 ? (
+              <>
+                <div style={{ 
+                  fontSize: '11px', 
+                  color: '#6b7280', 
+                  fontWeight: '600',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px',
+                  marginBottom: '4px'
+                }}>
+                  Assigned Laboratory{assignedLaboratories.length > 1 ? 'ies' : ''}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', alignItems: 'flex-end', width: '100%' }}>
+                  {assignedLaboratories.map((lab) => (
+                    <div key={lab.id} style={{
+                      backgroundColor: '#14b8a6',
+                      color: 'white',
+                      padding: '8px 16px',
+                      borderRadius: '20px',
+                      fontSize: '14px',
+                      fontWeight: '600',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      whiteSpace: 'nowrap',
+                      boxShadow: '0 2px 4px rgba(20, 184, 166, 0.2)'
+                    }}>
+                      <span>🧪</span>
+                      <span>{lab.labName || lab.labId || 'Unknown Lab'}</span>
+                      {lab.labId && (
+                        <span style={{ 
+                          fontSize: '11px', 
+                          opacity: 0.95,
+                          backgroundColor: 'rgba(255, 255, 255, 0.25)',
+                          padding: '3px 10px',
+                          borderRadius: '12px',
+                          fontWeight: '500'
+                        }}>
+                          {lab.labId}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div style={{
+                backgroundColor: '#fef3c7',
+                color: '#92400e',
+                padding: '8px 16px',
+                borderRadius: '20px',
+                fontSize: '13px',
+                fontWeight: '500',
+                border: '1px solid #fde68a'
+              }}>
+                ⚠️ No laboratory assigned
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Navigation Tabs */}
+      <div className="nav-tabs">
+        <button
+          onClick={() => setActiveTab("categories")}
+          className={`nav-tab ${activeTab === "categories" ? "active" : ""}`}
+        >
+          <span className="nav-tab-icon">📂</span>
+          Equipment Categories ({categories.length})
+        </button>
+        <button
+          onClick={() => setActiveTab("equipments")}
+          className={`nav-tab ${activeTab === "equipments" ? "active" : ""}`}
+        >
+          <span className="nav-tab-icon">⚙️</span>
+          Individual Equipment
+        </button>
+        <button
+          onClick={() => setActiveTab("maintenance")}
+          className={`nav-tab ${activeTab === "maintenance" ? "active" : ""}`}
+        >
+          <span className="nav-tab-icon">🔧</span>
+          Equipment Maintenance
+        </button>
+      </div>
+
+      {/* Equipment Summary - Show for Lab In Charge */}
+      {isLaboratoryManager() && (
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+          gap: '16px',
+          marginBottom: '24px'
+        }}>
+          {(() => {
+            const totalEquipment = equipments.reduce((sum, item) => {
+              const quantity = Number(item.quantity) || 1;
+              return sum + quantity;
+            }, 0);
+            
+            const borrowedEquipment = equipments.reduce((sum, item) => {
+              const quantityBorrowed = Number(item.quantity_borrowed) || 0;
+              return sum + quantityBorrowed;
+            }, 0);
+            
+            const availableEquipment = totalEquipment - borrowedEquipment;
+            
+            return (
+              <>
+                <div style={{
+                  backgroundColor: '#f0fdf4',
+                  border: '2px solid #10b981',
+                  borderRadius: '12px',
+                  padding: '16px',
+                  textAlign: 'center'
+                }}>
+                  <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#10b981', marginBottom: '8px' }}>
+                    {totalEquipment.toLocaleString()}
+                  </div>
+                  <div style={{ fontSize: '13px', color: '#6b7280', fontWeight: '500' }}>
+                    Total Equipment
+                  </div>
+                </div>
+                <div style={{
+                  backgroundColor: '#ecfdf5',
+                  border: '2px solid #10b981',
+                  borderRadius: '12px',
+                  padding: '16px',
+                  textAlign: 'center'
+                }}>
+                  <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#10b981', marginBottom: '8px' }}>
+                    {availableEquipment.toLocaleString()}
+                  </div>
+                  <div style={{ fontSize: '13px', color: '#6b7280', fontWeight: '500' }}>
+                    Available Equipment
+                  </div>
+                  {totalEquipment > 0 && (
+                    <div style={{ fontSize: '11px', color: '#059669', marginTop: '4px' }}>
+                      {Math.round((availableEquipment / totalEquipment) * 100)}% available
+                    </div>
+                  )}
+                </div>
+                <div style={{
+                  backgroundColor: '#fef3c7',
+                  border: '2px solid #f59e0b',
+                  borderRadius: '12px',
+                  padding: '16px',
+                  textAlign: 'center'
+                }}>
+                  <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#f59e0b', marginBottom: '8px' }}>
+                    {borrowedEquipment.toLocaleString()}
+                  </div>
+                  <div style={{ fontSize: '13px', color: '#6b7280', fontWeight: '500' }}>
+                    Currently Borrowed
+                  </div>
+                  {totalEquipment > 0 && (
+                    <div style={{ fontSize: '11px', color: '#d97706', marginTop: '4px' }}>
+                      {Math.round((borrowedEquipment / totalEquipment) * 100)}% borrowed
+                    </div>
+                  )}
+                </div>
+              </>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* Categories Tab */}
+      {activeTab === "categories" && (
+        <div className="tab-content">
+          <div className="section-header">
+            <h2 className="section-title">Equipment Categories</h2>
+            <button
+              onClick={() => setShowAddCategoryForm(true)}
+              className="btn btn-primary"
+            >
+              <span className="btn-icon">+</span>
+              Add Category
+            </button>
+          </div>
+
+          {/* Categories Grid */}
+          <div className="categories-grid">
+            {categories.map((category) => (
+              <div key={category.id} className="category-card">
+                <div className="category-header">
+                  <div className="category-info">
+                    <h3 className="category-title">{category.title}</h3>
+                    <p className="category-description">
+                      {category.description || "No description"}
+                    </p>
+                    {category.labId && (
+                      <div className="category-lab">
+                        <span className="lab-badge">
+                          🧪 {laboratories.find(lab => lab.labId === category.labId)?.labName || category.labId}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="category-stats">
+                  <div className="stat-item">
+                    <div className="stat-number">{category.totalCount || 0}</div>
+                    <div className="stat-label">Total Equipment</div>
+                  </div>
+                  <div className="stat-item">
+                    <div className="stat-number available">{category.availableCount || 0}</div>
+                    <div className="stat-label">Available</div>
+                  </div>
+                </div>
+
+                <div className="category-actions">
+                  <button
+                    onClick={() => {
+                      setSelectedCategory(category.id);
+                      setActiveTab("equipments");
+                    }}
+                    className="btn btn-outline btn-xs"
+                  >
+                    View
+                  </button>
+                  <button
+                    onClick={() => handleEditCategory(category)}
+                    className="btn btn-secondary btn-xs"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => handleDeleteCategory(category.id)}
+                    className="btn btn-danger btn-xs"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {categories.length === 0 && (
+            <div className="empty-state">
+              <div className="empty-icon">🧪</div>
+              <h3 className="empty-title">No categories found</h3>
+              <p className="empty-message">Create your first equipment category to get started.</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Equipment Tab */}
+      {activeTab === "equipments" && (
+        <div className="tab-content">
+          <div className="section-header">
+            <div className="section-header-left">
+              <h2 className="section-title">Individual Equipment</h2>
+              <div className="category-selector">
+                <label className="form-label">Category:</label>
+                <select
+                  value={selectedCategory}
+                  onChange={(e) => setSelectedCategory(e.target.value)}
+                  className="form-select"
+                >
+                  <option value="">Select Category</option>
+                  {categories.map((cat) => (
+                    <option key={cat.id} value={cat.id}>
+                      {cat.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="section-header-right">
+              {selectedCategory && equipments.length > 0 && (
+                <button
+                  onClick={exportEquipmentData}
+                  className="btn btn-outline"
+                >
+                  <span className="btn-icon">📊</span>
+                  Export CSV
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  if (!selectedCategory) {
+                    alert("Please select a category first");
+                    return;
+                  }
+                  setShowAddEquipmentForm(true);
+                }}
+                className={`btn ${selectedCategory ? "btn-success" : "btn-disabled"}`}
+                disabled={!selectedCategory}
+              >
+                <span className="btn-icon">+</span>
+                Add Equipment
+              </button>
+            </div>
+          </div>
+
+          {/* Search Bar */}
+          {selectedCategory && equipments.length > 0 && (
+            <div className="search-bar">
+              <input
+                type="text"
+                placeholder="Search equipment by name, model, serial number, location, or assigned person..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="search-input"
+              />
+              <select
+                value={laboratoryFilter}
+                onChange={(e) => setLaboratoryFilter(e.target.value)}
+                className="laboratory-filter"
+              >
+                <option value="">All Laboratories</option>
+                {laboratories.map((lab) => (
+                  <option key={lab.id} value={lab.labId}>
+                    {lab.labName}
+                  </option>
+                ))}
+              </select>
+              <span className="search-icon">🔍</span>
+            </div>
+          )}
+
+          {/* Equipment Content */}
+          {!selectedCategory ? (
+            <div className="empty-state">
+              <div className="empty-icon">🔬</div>
+              <h3 className="empty-title">Select a Category</h3>
+              <p className="empty-message">Choose a category from the dropdown above to view and manage equipment.</p>
+            </div>
+          ) : filteredEquipments.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-icon">📋</div>
+              <h3 className="empty-title">
+                {searchTerm ? "No equipment found" : "No equipment in this category"}
+              </h3>
+              <p className="empty-message">
+                {searchTerm 
+                  ? "Try adjusting your search terms or clear the search to see all equipment."
+                  : "Add your first equipment to this category."
+                }
+              </p>
+              {searchTerm && (
+                <button
+                  onClick={() => setSearchTerm("")}
+                  className="btn btn-outline btn-sm"
+                >
+                  Clear Search
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="equipment-table-container">
+              <div className="table-header">
+                <h3 className="table-title">
+                  Equipment List ({filteredEquipments.length}
+                  {searchTerm && ` of ${equipments.length}`})
+                </h3>
+              </div>
+
+              <div className="table-wrapper">
+                <table className="equipment-table">
+                  <thead>
+                    <tr>
+                      <th>Equipment</th>
+                      <th>Serial Number</th>
+                      <th>Laboratory</th>
+                      <th>Status</th>
+                      <th>Quantity</th>
+                      <th>Condition</th>
+                      <th>Location</th>
+                      <th>Assigned To</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredEquipments.map((equipment) => {
+                      const warrantyStatus = getWarrantyStatus(equipment.warrantyExpiry);
+                      const laboratory = laboratories.find(lab => lab.labId === equipment.labId);
+                      return (
+                        <tr key={equipment.id} className="equipment-row">
+                          <td className="equipment-cell">
+                            <div className="equipment-info">
+                              <div className="equipment-name">{equipment.name}</div>
+                              <div className="equipment-model">{equipment.model || "—"}</div>
+                              {warrantyStatus && (
+                                <div 
+                                  className={`warranty-status ${warrantyStatus.status}`}
+                                  style={{ color: warrantyStatus.color }}
+                                >
+                                  Expires: {warrantyStatus.text}
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                          <td className="serial-cell">
+                            <span className="serial-number">{equipment.serialNumber}</span>
+                          </td>
+                          <td className="laboratory-cell">
+                            {laboratory ? (
+                              <div className="laboratory-info">
+                                <div className="laboratory-name">{laboratory.labName}</div>
+                                <div className="laboratory-id">{laboratory.labId}</div>
+                              </div>
+                            ) : (
+                              <span className="no-laboratory">—</span>
+                            )}
+                          </td>
+                          <td>
+                            <span 
+                              className="status-badge"
+                              style={{
+                                backgroundColor: getStatusColor(equipment.status) + "20",
+                                color: getStatusColor(equipment.status),
+                                borderColor: getStatusColor(equipment.status) + "30"
+                              }}
+                            >
+                              {equipment.status}
+                            </span>
+                          </td>
+                          <td className="quantity-cell">
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                              <span className="quantity-badge">
+                                Total: {Number(equipment.quantity) || 1}
+                              </span>
+                              {equipment.quantity_borrowed !== undefined && equipment.quantity_borrowed !== null && (
+                                <span style={{ 
+                                  fontSize: '11px',
+                                  color: (Number(equipment.quantity) || 1) - (equipment.quantity_borrowed || 0) > 0 
+                                    ? '#10b981' 
+                                    : '#ef4444',
+                                  fontWeight: '500'
+                                }}>
+                                  Available: {(Number(equipment.quantity) || 1) - (equipment.quantity_borrowed || 0)}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td>
+                            <span className={`condition-badge ${equipment.condition?.toLowerCase()}`}>
+                              {equipment.condition || "—"}
+                            </span>
+                          </td>
+                          <td className="location-cell">{equipment.location || "—"}</td>
+                          <td className="assigned-cell">{equipment.assignedTo || "—"}</td>
+                          <td className="actions-cell">
+                            <div className="action-buttons">
+                              <button
+                                onClick={() => handleViewUsageReport(equipment)}
+                                className="btn btn-info btn-xs"
+                                style={{ backgroundColor: '#3b82f6', color: 'white', marginRight: '4px' }}
+                              >
+                                📊 Report
+                              </button>
+                              <button
+                                onClick={() => handleEditEquipment(equipment)}
+                                className="btn btn-outline btn-xs"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                onClick={() => handleDeleteEquipment(equipment.id)}
+                                className="btn btn-danger btn-xs"
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Maintenance Tab */}
+      {activeTab === "maintenance" && (
+        <EquipmentMaintenance
+          categories={categories}
+          equipments={equipments}
+          selectedCategory={selectedCategory}
+        />
+      )}
+
+      {/* Category Modal */}
+      {showAddCategoryForm && (
+        <div className="modal-overlay">
+          <div className="modal category-modal">
+            <div className="modal-header">
+              <h2 className="modal-title">
+                {editingCategory ? "Edit Category" : "Add New Category"}
+              </h2>
+              <button
+                onClick={resetCategoryForm}
+                className="modal-close"
+              >
+                ×
+              </button>
+            </div>
+
+            <form onSubmit={handleCategorySubmit} className="modal-form">
+              <div className="form-group">
+                <label className="form-label required">Category Title</label>
+                <input
+                  type="text"
+                  name="title"
+                  value={categoryFormData.title}
+                  onChange={handleCategoryInputChange}
+                  placeholder="e.g., Laboratory Glassware"
+                  required
+                  className="form-input"
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label required">Laboratory</label>
+                {isAdmin() ? (
+                  <select
+                    name="labId"
+                    value={categoryFormData.labId}
+                    onChange={handleCategoryInputChange}
+                    required
+                    className="form-select"
+                  >
+                    <option value="">Select Laboratory</option>
+                    {laboratories.map(lab => (
+                      <option key={lab.id} value={lab.labId}>
+                        {lab.labName} ({lab.labId})
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <div className="form-input-display">
+                    {(() => {
+                      const assignedLabIds = getAssignedLaboratoryIds();
+                      if (assignedLabIds && assignedLabIds.length > 0) {
+                        const assignedLab = laboratories.find(lab => assignedLabIds.includes(lab.id));
+                        return assignedLab ? `${assignedLab.labName} (${assignedLab.labId})` : 'No laboratory assigned';
+                      }
+                      return 'No laboratory assigned';
+                    })()}
+                  </div>
+                )}
+                <small className="form-help">
+                  {isAdmin() ? 'Select which laboratory this category belongs to' : 'This category will be created for your assigned laboratory'}
+                </small>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Description</label>
+                <textarea
+                  name="description"
+                  value={categoryFormData.description}
+                  onChange={handleCategoryInputChange}
+                  placeholder="Brief description of this equipment category"
+                  rows="3"
+                  className="form-textarea"
+                />
+              </div>
+
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  onClick={resetCategoryForm}
+                  className="btn btn-secondary"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  disabled={isSubmittingCategory}
+                >
+                  {isSubmittingCategory ? (
+                    <>
+                      <span className="loading-spinner"></span>
+                      {editingCategory ? "Updating..." : "Adding..."}
+                    </>
+                  ) : (
+                    <>
+                      {editingCategory ? "Update Category" : "Add Category"}
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Equipment Modal */}
+      {showAddEquipmentForm && (
+        <div className="modal-overlay">
+          <div className="modal equipment-modal">
+            <div className="modal-header">
+              <h2 className="modal-title">
+                {editingEquipment ? "Edit Equipment" : "Add New Equipment"}
+              </h2>
+              <button
+                onClick={resetEquipmentForm}
+                className="modal-close"
+              >
+                ×
+              </button>
+            </div>
+
+            <form onSubmit={handleEquipmentSubmit} className="modal-form">
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label required">Equipment Name</label>
+                  <input
+                    type="text"
+                    name="name"
+                    value={equipmentFormData.name}
+                    onChange={handleEquipmentInputChange}
+                    placeholder="e.g., Digital Scale"
+                    required
+                    className="form-input"
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Model</label>
+                  <input
+                    type="text"
+                    name="model"
+                    value={equipmentFormData.model}
+                    onChange={handleEquipmentInputChange}
+                    placeholder="e.g., XS205"
+                    className="form-input"
+                  />
+                </div>
+              </div>
+
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Serial Number</label>
+                  <input
+                    type="text"
+                    name="serialNumber"
+                    value={equipmentFormData.serialNumber}
+                    onChange={handleEquipmentInputChange}
+                    placeholder="e.g., SN123456789"
+                    className="form-input"
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Location</label>
+                  <input
+                    type="text"
+                    name="location"
+                    value={equipmentFormData.location}
+                    onChange={handleEquipmentInputChange}
+                    placeholder="e.g., Lab Room 101"
+                    className="form-input"
+                  />
+                </div>
+              </div>
+
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Laboratory</label>
+                  <select
+                    name="labId"
+                    value={equipmentFormData.labId}
+                    onChange={handleEquipmentInputChange}
+                    className="form-select"
+                  >
+                    <option value="">Select Laboratory</option>
+                    {laboratories.map((lab) => (
+                      <option key={lab.id} value={lab.labId}>
+                        {lab.labName} ({lab.labId})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Status</label>
+                  <select
+                    name="status"
+                    value={equipmentFormData.status}
+                    onChange={handleEquipmentInputChange}
+                    className="form-select"
+                  >
+                    <option value="Available">Available</option>
+                    <option value="In Use">In Use</option>
+                    <option value="Maintenance">Maintenance</option>
+                    <option value="Retired">Retired</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Condition</label>
+                  <select
+                    name="condition"
+                    value={equipmentFormData.condition}
+                    onChange={handleEquipmentInputChange}
+                    className="form-select"
+                  >
+                    <option value="Excellent">Excellent</option>
+                    <option value="Good">Good</option>
+                    <option value="Fair">Fair</option>
+                    <option value="Poor">Poor</option>
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label required">Quantity</label>
+                  <input
+                    type="number"
+                    name="quantity"
+                    min="1"
+                    value={equipmentFormData.quantity}
+                    onChange={handleEquipmentInputChange}
+                    className="form-input"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Purchase Date</label>
+                  <input
+                    type="date"
+                    name="purchaseDate"
+                    value={equipmentFormData.purchaseDate}
+                    onChange={handleEquipmentInputChange}
+                    className="form-input"
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Expiration Date</label>
+                  <input
+                    type="date"
+                    name="warrantyExpiry"
+                    value={equipmentFormData.warrantyExpiry}
+                    onChange={handleEquipmentInputChange}
+                    className="form-input"
+                  />
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Assigned To</label>
+                <input
+                  type="text"
+                  name="assignedTo"
+                  value={equipmentFormData.assignedTo}
+                  onChange={handleEquipmentInputChange}
+                  placeholder="Auto-filled when laboratory is selected"
+                  className="form-input"
+                />
+                <small className="form-help">
+                  {equipmentFormData.assignedTo 
+                    ? `Automatically assigned to Lab In Charge: ${equipmentFormData.assignedTo}`
+                    : "Select a laboratory to automatically assign it to the Lab In Charge"
+                  }
+                </small>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Notes</label>
+                <textarea
+                  name="notes"
+                  value={equipmentFormData.notes}
+                  onChange={handleEquipmentInputChange}
+                  placeholder="Additional notes about this equipment"
+                  rows="3"
+                  className="form-textarea"
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Equipment Image</label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleImageChange}
+                  className="form-input"
+                />
+                <small className="form-help">
+                  Upload an image of the equipment (Max 2MB, stored in database)
+                </small>
+                
+                {imagePreview && (
+                  <div className="image-preview-container">
+                    <img src={imagePreview} alt="Equipment preview" className="image-preview" />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEquipmentImage(null);
+                        setImagePreview(null);
+                      }}
+                      className="btn btn-sm btn-danger"
+                    >
+                      Remove Image
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  onClick={resetEquipmentForm}
+                  className="btn btn-secondary"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-success"
+                  disabled={isSubmittingEquipment}
+                >
+                  {isSubmittingEquipment ? (
+                    <>
+                      <span className="loading-spinner"></span>
+                      {editingEquipment ? "Updating..." : "Adding..."}
+                    </>
+                  ) : (
+                    <>
+                      {editingEquipment ? "Update Equipment" : "Add Equipment"}
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Success Modal */}
+      {showSuccessModal && (
+        <div className="modal-overlay">
+          <div className="modal-content success-modal">
+            <div className="modal-header">
+              <div className="success-icon">✅</div>
+              <h2>Success!</h2>
+            </div>
+            <div className="modal-body">
+              <p>{feedbackMessage}</p>
+            </div>
+            <div className="modal-actions">
+              <button 
+                onClick={() => setShowSuccessModal(false)} 
+                className="btn btn-primary"
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Error Modal */}
+      {showErrorModal && (
+        <div className="modal-overlay">
+          <div className="modal-content error-modal">
+            <div className="modal-header">
+              <div className="error-icon">⚠️</div>
+              <h2>Error</h2>
+            </div>
+            <div className="modal-body">
+              <p>{feedbackMessage}</p>
+            </div>
+            <div className="modal-actions">
+              <button 
+                onClick={() => setShowErrorModal(false)} 
+                className="btn btn-primary"
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Loading Modal */}
+      {(isSubmittingEquipment || isSubmittingCategory) && (
+        <div className="modal-overlay loading-overlay">
+          <div className="loading-modal">
+            <div className="loading-spinner-large"></div>
+            <p>
+              {isSubmittingEquipment 
+                ? (editingEquipment ? "Updating equipment..." : "Adding equipment...")
+                : (editingCategory ? "Updating category..." : "Adding category...")
+              }
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Usage Report Modal */}
+      {showUsageReportModal && selectedEquipmentForReport && (
+        <div className="modal-overlay" onClick={() => setShowUsageReportModal(false)}>
+          <div className="modal-content enhanced-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2 className="modal-title">
+                📊 Usage Report - {selectedEquipmentForReport.name}
+              </h2>
+              <button 
+                onClick={() => setShowUsageReportModal(false)} 
+                className="modal-close"
+              >
+                ×
+              </button>
+            </div>
+            
+            <div className="modal-body">
+              <div className="usage-report">
+                <div className="usage-table-container">
+                  <table className="usage-table">
+                    <thead>
+                      <tr>
+                        <th>Equipment Name</th>
+                        <th>Total Borrowed</th>
+                        <th>Borrowed by Students</th>
+                        <th>Borrowed by Faculty</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(() => {
+                        const usageData = calculateUsageData(selectedEquipmentForReport.name);
+                        return (
+                          <tr>
+                            <td>{selectedEquipmentForReport.name}</td>
+                            <td>{usageData.total} times</td>
+                            <td>{usageData.students}</td>
+                            <td>{usageData.faculty}</td>
+                          </tr>
+                        );
+                      })()}
+                    </tbody>
+                  </table>
+                </div>
+                
+                <div className="usage-summary">
+                  {(() => {
+                    const usageStats = calculateUsageStatistics(selectedEquipmentForReport.name);
+                    return (
+                      <>
+                        <div className="summary-card">
+                          <div className="summary-title">Most Active Period</div>
+                          <div className="summary-value">{usageStats.mostActivePeriod}</div>
+                        </div>
+                        <div className="summary-card">
+                          <div className="summary-title">Average Usage</div>
+                          <div className="summary-value">{usageStats.averageUsage}</div>
+                        </div>
+                        <div className="summary-card">
+                          <div className="summary-title">Utilization Rate</div>
+                          <div className="summary-value">{usageStats.utilizationRate}</div>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+              </div>
+            </div>
+
+            <div className="modal-footer">
+              <button 
+                onClick={() => setShowUsageReportModal(false)} 
+                className="close-button"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

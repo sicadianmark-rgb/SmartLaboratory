@@ -1044,39 +1044,6 @@ export default function RequestFormsPage() {
       entryType: "return",
     };
 
-    const releaseTimestamp =
-      request.releasedAt ||
-      request.updatedAt ||
-      request.requestedAt ||
-      returnedAt;
-
-    const releaseEntry = {
-      requestId: request.id,
-      itemId: request.itemId || "",
-      categoryId: request.categoryId || "",
-      categoryName: request.categoryName || "",
-      equipmentName: request.itemName || "Unknown item",
-      borrower: getBorrowerName(request.userId),
-      userId: request.userId || "",
-      borrowerEmail: request.userEmail || "",
-      adviserName: request.adviserName || "",
-      quantity: request.quantity || 1,
-      laboratory: request.laboratory || laboratory?.labName || "",
-      labId:
-        laboratory?.labId || matchingEquipment?.labId || request.labId || "",
-      labRecordId: laboratory?.id || "",
-      status: "Released",
-      action: "Item Released",
-      releasedDate: releaseTimestamp,
-      returnDate: null,
-      condition: "Item released to borrower",
-      timestamp: releaseTimestamp,
-      processedBy: request.reviewedBy || "Admin",
-      returnDetails: null,
-      entryType: "release",
-    };
-
-    await push(historyRef, releaseEntry);
     await push(historyRef, historyEntry);
   };
 

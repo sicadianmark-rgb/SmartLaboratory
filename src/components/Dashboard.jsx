@@ -493,20 +493,61 @@ export default function Dashboard() {
     //   return normalizeText(item.status) === 'available' ? sum + quantity : sum;
     // }, 0);
 
-    const needMaintenance = equipmentList.reduce((sum, item) => {
-      const quantity = Number(item.quantity) || 1;
-      return normalizeText(item.status) === 'maintenance' ? sum + quantity : sum;
-    }, 0);
-
     setDashboardStats(prev => ({
       ...prev,
       totalEquipment,
       itemsInStock: availableEquipment, // Use calculated available instead of status-based
       availableEquipment, // Available equipment count
       borrowedEquipment, // Add borrowed equipment count
-      needMaintenance
     }));
   }, [equipmentData, isAdmin, equipmentBelongsToAssignedLabs, getAssignedLaboratoryIds]);
+
+
+  useEffect(() => {
+    const fetchMaintenanceData = () => {
+      const categoriesRef = ref(database, 'equipment_categories');
+      onValue(categoriesRef, (snapshot) => {
+        if (snapshot.exists()) {
+          const categoriesData = snapshot.val();
+          let totalScheduledToday = 0;
+
+          const today = new Date();
+          const todayString = today.toISOString().split('T')[0];
+
+          Object.keys(categoriesData).forEach((categoryId) => {
+            const category = categoriesData[categoryId] || {};
+            const scheduledMaintenance = category.scheduled_maintenance || {};
+            const maintenanceRecords = category.maintenance_records || {};
+
+            const completedForToday = Object.values(maintenanceRecords).filter(record => {
+              return record.datePerformed === todayString && record.status === 'Completed';
+            });
+
+            Object.values(scheduledMaintenance).forEach((schedule) => {
+              if (schedule.scheduledDate === todayString) {
+                const isCompleted = completedForToday.some(record =>
+                  record.equipmentId === schedule.equipmentId &&
+                  record.description === schedule.description &&
+                  record.type === schedule.type
+                );
+
+                if (!isCompleted) {
+                  totalScheduledToday++;
+                }
+              }
+            });
+          });
+
+          setDashboardStats(prev => ({
+            ...prev,
+            needMaintenance: totalScheduledToday
+          }));
+        }
+      });
+    };
+
+    fetchMaintenanceData();
+  }, []);
 
   // Helper function to get borrower name from userId
   const getBorrowerName = useCallback((userId) => {

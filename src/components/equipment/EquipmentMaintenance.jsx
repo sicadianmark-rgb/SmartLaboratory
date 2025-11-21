@@ -313,9 +313,120 @@ export default function EquipmentMaintenance({ categories, equipments, selectedC
     return matchesSearch && matchesPriority;
   });
 
-  const upcomingMaintenance = filteredScheduledMaintenance.filter(item => 
-    new Date(item.scheduledDate) <= new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
-  );
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const scheduledForToday = filteredScheduledMaintenance.filter(item => {
+    if (!item.scheduledDate) return false;
+    const scheduledDate = new Date(item.scheduledDate);
+    const userTimezoneOffset = scheduledDate.getTimezoneOffset() * 60000;
+    const localScheduledDate = new Date(scheduledDate.getTime() + userTimezoneOffset);
+    localScheduledDate.setHours(0,0,0,0);
+    return localScheduledDate.getTime() === today.getTime();
+  });
+
+  const upcomingMaintenance = filteredScheduledMaintenance.filter(item => {
+    if (!item.scheduledDate) return false;
+    const scheduledDate = new Date(item.scheduledDate);
+    const userTimezoneOffset = scheduledDate.getTimezoneOffset() * 60000;
+    const localScheduledDate = new Date(scheduledDate.getTime() + userTimezoneOffset);
+    localScheduledDate.setHours(0,0,0,0);
+    return localScheduledDate.getTime() > today.getTime();
+  });
+
+  const renderScheduledItems = (items, emptyState) => {
+    if (items.length === 0) {
+      return emptyState;
+    }
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        {items.map((schedule) => (
+            <div 
+              key={schedule.id} 
+              style={{
+                background: 'white',
+                border: isMaintenanceOverdue(schedule.scheduledDate) ? '1px solid #ef4444' : '1px solid #e5e7eb',
+                borderLeft: isMaintenanceOverdue(schedule.scheduledDate) ? '4px solid #ef4444' : '1px solid #e5e7eb',
+                borderRadius: '12px',
+                padding: '1.5rem',
+                boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1)'
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem', gap: '1rem' }}>
+                <div style={{ flex: 1 }}>
+                  <h3 style={{ fontSize: '1.125rem', fontWeight: '600', color: '#111827', margin: '0 0 0.25rem 0' }}>
+                    {getEquipmentName(schedule.equipmentId)}
+                  </h3>
+                  <p style={{ color: '#6b7280', fontSize: '0.875rem', margin: '0' }}>{schedule.description}</p>
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <span style={{
+                    padding: '0.25rem 0.75rem',
+                    borderRadius: '20px',
+                    fontSize: '0.75rem',
+                    fontWeight: '600',
+                    backgroundColor: getMaintenanceTypeColor(schedule.type) + "20",
+                    color: getMaintenanceTypeColor(schedule.type)
+                  }}>
+                    {schedule.type}
+                  </span>
+                  <span style={{
+                    padding: '0.25rem 0.75rem',
+                    borderRadius: '20px',
+                    fontSize: '0.75rem',
+                    fontWeight: '600',
+                    backgroundColor: getPriorityColor(schedule.priority || "Medium") + "20",
+                    color: getPriorityColor(schedule.priority || "Medium")
+                  }}>
+                    {schedule.priority || "Medium"}
+                  </span>
+                  {isMaintenanceOverdue(schedule.scheduledDate) && (
+                    <span style={{
+                      padding: '0.25rem 0.75rem',
+                      borderRadius: '20px',
+                      fontSize: '0.75rem',
+                      fontWeight: '600',
+                      backgroundColor: '#fef2f2',
+                      color: '#dc2626'
+                    }}>
+                      OVERDUE
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
+                <div>
+                  <span style={{ fontSize: '0.75rem', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase' }}>Scheduled Date:</span>
+                  <div style={{ fontSize: '0.875rem', color: '#111827', fontWeight: '500' }}>{schedule.scheduledDate}</div>
+                </div>
+                {schedule.notes && (
+                  <div>
+                    <span style={{ fontSize: '0.75rem', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase' }}>Notes:</span>
+                    <div style={{ fontSize: '0.875rem', color: '#111827', fontWeight: '500' }}>{schedule.notes}</div>
+                  </div>
+                )}
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', paddingTop: '1rem', borderTop: '1px solid #f3f4f6' }}>
+                <button
+                  onClick={() => completeScheduledMaintenance(schedule)}
+                  className="btn btn-success btn-sm"
+                >
+                  Mark Complete
+                </button>
+                <button
+                  onClick={() => handleDeleteScheduled(schedule.id)}
+                  className="btn btn-danger btn-sm"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+        ))}
+      </div>
+    );
+  };
 
   if (!selectedCategory) {
     return (
@@ -365,7 +476,7 @@ export default function EquipmentMaintenance({ categories, equipments, selectedC
           className={`nav-tab ${activeSubTab === "scheduled" ? "active" : ""}`}
         >
           <span className="nav-tab-icon">📅</span>
-          Scheduled Maintenance ({filteredScheduledMaintenance.length})
+          Scheduled Maintenance ({scheduledForToday.length})
         </button>
         <button
           onClick={() => setActiveSubTab("upcoming")}
@@ -513,109 +624,22 @@ export default function EquipmentMaintenance({ categories, equipments, selectedC
       )}
 
       {/* Scheduled Maintenance Tab */}
-      {(activeSubTab === "scheduled" || activeSubTab === "upcoming") && (
-        <div>
-          {(activeSubTab === "scheduled" ? filteredScheduledMaintenance : upcomingMaintenance).length === 0 ? (
-            <div className="empty-state">
-              <div className="empty-icon">📅</div>
-              <h3 className="empty-title">
-                {activeSubTab === "upcoming" ? "No upcoming maintenance" : "No scheduled maintenance"}
-              </h3>
-              <p className="empty-message">
-                {activeSubTab === "upcoming" 
-                  ? "All maintenance is up to date for the next 7 days."
-                  : "Schedule maintenance to keep your equipment in optimal condition."
-                }
-              </p>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              {(activeSubTab === "scheduled" ? filteredScheduledMaintenance : upcomingMaintenance).map((schedule) => (
-                <div 
-                  key={schedule.id} 
-                  style={{
-                    background: 'white',
-                    border: isMaintenanceOverdue(schedule.scheduledDate) ? '1px solid #ef4444' : '1px solid #e5e7eb',
-                    borderLeft: isMaintenanceOverdue(schedule.scheduledDate) ? '4px solid #ef4444' : '1px solid #e5e7eb',
-                    borderRadius: '12px',
-                    padding: '1.5rem',
-                    boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1)'
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem', gap: '1rem' }}>
-                    <div style={{ flex: 1 }}>
-                      <h3 style={{ fontSize: '1.125rem', fontWeight: '600', color: '#111827', margin: '0 0 0.25rem 0' }}>
-                        {getEquipmentName(schedule.equipmentId)}
-                      </h3>
-                      <p style={{ color: '#6b7280', fontSize: '0.875rem', margin: '0' }}>{schedule.description}</p>
-                    </div>
-                    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                      <span style={{
-                        padding: '0.25rem 0.75rem',
-                        borderRadius: '20px',
-                        fontSize: '0.75rem',
-                        fontWeight: '600',
-                        backgroundColor: getMaintenanceTypeColor(schedule.type) + "20",
-                        color: getMaintenanceTypeColor(schedule.type)
-                      }}>
-                        {schedule.type}
-                      </span>
-                      <span style={{
-                        padding: '0.25rem 0.75rem',
-                        borderRadius: '20px',
-                        fontSize: '0.75rem',
-                        fontWeight: '600',
-                        backgroundColor: getPriorityColor(schedule.priority || "Medium") + "20",
-                        color: getPriorityColor(schedule.priority || "Medium")
-                      }}>
-                        {schedule.priority || "Medium"}
-                      </span>
-                      {isMaintenanceOverdue(schedule.scheduledDate) && (
-                        <span style={{
-                          padding: '0.25rem 0.75rem',
-                          borderRadius: '20px',
-                          fontSize: '0.75rem',
-                          fontWeight: '600',
-                          backgroundColor: '#fef2f2',
-                          color: '#dc2626'
-                        }}>
-                          OVERDUE
-                        </span>
-                      )}
-                    </div>
-                  </div>
+      {activeSubTab === "scheduled" && renderScheduledItems(
+        scheduledForToday,
+        <div className="empty-state">
+          <div className="empty-icon">📅</div>
+          <h3 className="empty-title">No maintenance scheduled for today</h3>
+          <p className="empty-message">Schedule maintenance to keep your equipment in optimal condition.</p>
+        </div>
+      )}
 
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
-                    <div>
-                      <span style={{ fontSize: '0.75rem', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase' }}>Scheduled Date:</span>
-                      <div style={{ fontSize: '0.875rem', color: '#111827', fontWeight: '500' }}>{schedule.scheduledDate}</div>
-                    </div>
-                    {schedule.notes && (
-                      <div>
-                        <span style={{ fontSize: '0.75rem', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase' }}>Notes:</span>
-                        <div style={{ fontSize: '0.875rem', color: '#111827', fontWeight: '500' }}>{schedule.notes}</div>
-                      </div>
-                    )}
-                  </div>
-
-                  <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', paddingTop: '1rem', borderTop: '1px solid #f3f4f6' }}>
-                    <button
-                      onClick={() => completeScheduledMaintenance(schedule)}
-                      className="btn btn-success btn-sm"
-                    >
-                      Mark Complete
-                    </button>
-                    <button
-                      onClick={() => handleDeleteScheduled(schedule.id)}
-                      className="btn btn-danger btn-sm"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+      {/* Upcoming Maintenance Tab */}
+      {activeSubTab === "upcoming" && renderScheduledItems(
+        upcomingMaintenance,
+        <div className="empty-state">
+          <div className="empty-icon">⚠️</div>
+          <h3 className="empty-title">No upcoming maintenance</h3>
+          <p className="empty-message">All maintenance is up to date.</p>
         </div>
       )}
 

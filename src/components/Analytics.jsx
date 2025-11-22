@@ -13,7 +13,8 @@ export default function Analytics() {
     userActivity: {},
     maintenanceStats: {},
     categoryBreakdown: [],
-    monthlyData: {},
+    monthlyData: [],
+    monthlyTrends: [],
     peakHours: {},
     utilizationRates: {},
     diagnosticAnalytics: {
@@ -172,7 +173,7 @@ export default function Analytics() {
     const categoryBreakdown = calculateCategoryBreakdown(categories, borrowRequests);
 
     // Monthly Data
-    const monthlyData = calculateMonthlyData(borrowRequests, periodDays);
+    const { monthlyTotals, monthlyTrends } = calculateMonthlyData(borrowRequests, history, periodDays);
 
     // Peak Hours Analysis
     const peakHours = calculatePeakHours(history, periodDays);
@@ -189,7 +190,8 @@ export default function Analytics() {
       userActivity,
       maintenanceStats,
       categoryBreakdown,
-      monthlyData,
+      monthlyData: monthlyTotals,
+      monthlyTrends,
       peakHours,
       utilizationRates,
       diagnosticAnalytics
@@ -275,22 +277,67 @@ export default function Analytics() {
     })).sort((a, b) => b.count - a.count);
   };
 
-  const calculateMonthlyData = (borrowRequests, periodDays) => {
-    const requests = Object.values(borrowRequests);
-    const monthlyData = {};
-    
-    requests.forEach(req => {
-      if (req.requestedAt) {
-        const date = new Date(req.requestedAt);
-        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-        monthlyData[monthKey] = (monthlyData[monthKey] || 0) + 1;
-      }
+  const calculateMonthlyData = (borrowRequests, history, periodDays) => {
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - periodDays);
+
+    const historyEntries = Object.values(history);
+    const monthlyReleaseTotals = {};
+
+    historyEntries.forEach(entry => {
+      const action = (entry.action || '').toLowerCase();
+      const status = (entry.status || '').toLowerCase();
+      const isRelease = entry.entryType === 'release' || action.includes('release') || status === 'released';
+      if (!isRelease) return;
+
+      const dateSource = entry.releasedDate || entry.timestamp;
+      if (!dateSource) return;
+      const date = new Date(dateSource);
+      if (isNaN(date) || date < cutoffDate) return;
+
+      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      const quantity =
+        parseInt(entry.quantity, 10) ||
+        parseInt(entry.details?.originalRequest?.quantity, 10) ||
+        1;
+
+      monthlyReleaseTotals[monthKey] = (monthlyReleaseTotals[monthKey] || 0) + quantity;
     });
 
-    return Object.entries(monthlyData).map(([month, count]) => ({
-      month,
-      count
-    })).sort((a, b) => a.month.localeCompare(b.month));
+    if (Object.keys(monthlyReleaseTotals).length === 0) {
+      const requests = Object.values(borrowRequests);
+      requests.forEach(req => {
+        if (!req.requestedAt) return;
+        const date = new Date(req.requestedAt);
+        if (isNaN(date) || date < cutoffDate) return;
+        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        monthlyReleaseTotals[monthKey] = (monthlyReleaseTotals[monthKey] || 0) + 1;
+      });
+    }
+
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const totalsArray = Object.entries(monthlyReleaseTotals)
+      .map(([month, count]) => ({ month, count }))
+      .sort((a, b) => a.month.localeCompare(b.month));
+
+    const trendsArray = monthNames.map((_, index) => {
+      const monthNumber = index + 1;
+      const monthKey = Object.keys(monthlyReleaseTotals).find(key => {
+        const [year, month] = key.split('-').map(Number);
+        return month === monthNumber;
+      });
+
+      const count = monthKey ? monthlyReleaseTotals[monthKey] : 0;
+      return {
+        month: monthNumber,
+        count
+      };
+    });
+
+    return {
+      monthlyTotals: totalsArray,
+      monthlyTrends: trendsArray
+    };
   };
 
   const calculatePeakHours = (history, periodDays) => {
@@ -574,6 +621,11 @@ export default function Analytics() {
     return colors[Math.abs(hash) % colors.length];
   };
 
+  const formatMonthShort = (monthNumber) => {
+    if (!monthNumber) return '';
+    return new Date(0, monthNumber - 1).toLocaleString('en-US', { month: 'short' });
+  };
+
   const formatDate = (dateStr) => {
     return new Date(dateStr).toLocaleDateString('en-US', { 
       month: 'short', 
@@ -584,6 +636,27 @@ export default function Analytics() {
   const formatHour = (hour) => {
     return `${hour}:00`;
   };
+
+  const baseMonthlyTrendData = Array.isArray(analyticsData.monthlyTrends) && analyticsData.monthlyTrends.length > 0
+    ? analyticsData.monthlyTrends
+    : Array.isArray(analyticsData.monthlyData) ? analyticsData.monthlyData.map((item, index) => ({
+        month: index + 1,
+        count: item.count || 0
+      })) : [];
+  const currentMonthIndex = new Date().getMonth();
+  const totalMonths = baseMonthlyTrendData.length;
+  let monthlyTrendData = baseMonthlyTrendData;
+  if (totalMonths > 0) {
+    const offset = 5; // show current month in the middle (index 5)
+    const startIndex = ((currentMonthIndex - offset) % totalMonths + totalMonths) % totalMonths;
+    monthlyTrendData = Array.from({ length: totalMonths }, (_, idx) => {
+      const sourceIndex = (startIndex + idx) % totalMonths;
+      return baseMonthlyTrendData[sourceIndex];
+    });
+  }
+  const maxMonthlyCount = monthlyTrendData.length > 0
+    ? Math.max(...monthlyTrendData.map(m => m.count || 0))
+    : 0;
 
   if (loading) {
     return (
@@ -809,18 +882,23 @@ export default function Analytics() {
               <h3>Monthly Borrowing Trends</h3>
               <div className="monthly-chart">
                 <div className="monthly-chart-container">
-                  {analyticsData.monthlyData.map(month => (
-                    <div key={month.month} className="month-bar">
-                      <div className="month-label">{month.month}</div>
-                      <div 
-                        className="month-bar-fill"
-                        style={{
-                          height: `${(month.count / Math.max(...analyticsData.monthlyData.map(m => m.count))) * 100}%`
-                        }}
-                      ></div>
-                      <div className="month-count">{month.count}</div>
-                    </div>
-                  ))}
+                  {monthlyTrendData.map((dataPoint, index) => {
+                    const heightPercent = maxMonthlyCount > 0
+                      ? Math.max((dataPoint.count / maxMonthlyCount) * 100, 4)
+                      : 0;
+                    return (
+                      <div key={`${dataPoint.month}-${index}`} className="monthly-bar">
+                        <span className="monthly-bar-count">{dataPoint.count}</span>
+                        <div className="monthly-bar-track">
+                          <div 
+                            className="monthly-bar-fill"
+                            style={{ height: `${heightPercent}%` }}
+                          />
+                        </div>
+                        <span className="monthly-bar-label">{formatMonthShort(dataPoint.month)}</span>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             </div>

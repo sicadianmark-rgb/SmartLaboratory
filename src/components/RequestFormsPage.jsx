@@ -615,6 +615,8 @@ export default function RequestFormsPage() {
           labId:
             laboratory?.labId || equipment?.labId || requestData.labId || "",
           labRecordId: laboratory?.id || "",
+          batchId: requestData.batchId || null,
+          batchSize: requestData.batchSize || null,
           status: "Released",
           action: "Item Released",
           releasedDate: releasedAt,
@@ -680,6 +682,8 @@ export default function RequestFormsPage() {
           labId:
             laboratory?.labId || equipment?.labId || requestData.labId || "",
           labRecordId: laboratory?.id || "",
+          batchId: requestData.batchId || null,
+          batchSize: requestData.batchSize || null,
           status: "Rejected",
           action: "Request Rejected",
           releasedDate: null,
@@ -1069,6 +1073,8 @@ export default function RequestFormsPage() {
       labId:
         laboratory?.labId || matchingEquipment?.labId || request.labId || "",
       labRecordId: laboratory?.id || "",
+      batchId: request.batchId || null,
+      batchSize: request.batchSize || null,
       status: "Returned",
       action: "Item Returned",
       releasedDate: request.requestedAt || request.dateToBeUsed || returnedAt,

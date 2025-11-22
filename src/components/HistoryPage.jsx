@@ -1,12 +1,12 @@
 // src/components/HistoryPage.jsx
-import { useState, useEffect } from "react";
+import { useState, useEffect, Fragment } from "react";
+
 import { ref, onValue, get } from "firebase/database";
 import { database } from "../firebase";
 import { useAuth } from "../contexts/AuthContext";
 import { exportToPDF, printActivities } from "../utils/pdfUtils";
 import "../CSS/HistoryPage.css";
 import eyeIcon from '../images/eye.png';
-
 
 export default function HistoryPage() {
   const { isAdmin, getAssignedLaboratoryIds } = useAuth();
@@ -17,14 +17,14 @@ export default function HistoryPage() {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filterType, setFilterType] = useState("All Types");
+  const [filterBatch, setFilterBatch] = useState("All");
+  const [groupByBatch, setGroupByBatch] = useState(false);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(10);
   const [selectedEntry, setSelectedEntry] = useState(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
-
-
 
   // Load laboratories data
   const loadLaboratories = async () => {
@@ -183,11 +183,16 @@ export default function HistoryPage() {
                          entry.borrower?.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          borrowerName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          entry.adviserName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         entry.action?.toLowerCase().includes(searchTerm.toLowerCase());
+                         entry.action?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         entry.batchId?.toLowerCase().includes(searchTerm.toLowerCase());
 
     const matchesType = filterType === "All Types" || entry.action.includes(filterType);
+    const matchesBatch =
+      filterBatch === "All" ||
+      (filterBatch === "Batch" && entry.batchId) ||
+      (filterBatch === "Individual" && !entry.batchId);
 
-    return matchesSearch && matchesType;
+    return matchesSearch && matchesType && matchesBatch;
   });
 
   // Pagination
@@ -195,6 +200,29 @@ export default function HistoryPage() {
   const indexOfFirstItem = indexOfLastItem - itemsPerPage;
   const currentItems = filteredHistory.slice(indexOfFirstItem, indexOfLastItem);
   const totalPages = Math.ceil(filteredHistory.length / itemsPerPage);
+
+  const groupedHistory = groupByBatch
+    ? (() => {
+        const groups = {};
+        filteredHistory.forEach((entry) => {
+          const key = entry.batchId || "individual";
+          if (!groups[key]) {
+            groups[key] = {
+              batchId: entry.batchId,
+              batchSize: entry.batchSize,
+              entries: [],
+              isBatch: Boolean(entry.batchId),
+            };
+          }
+          groups[key].entries.push(entry);
+        });
+        return Object.values(groups);
+      })()
+    : null;
+
+  const hasHistoryToDisplay = groupByBatch
+    ? filteredHistory.length > 0
+    : currentItems.length > 0;
 
   const formatDate = (dateString) => {
     const date = new Date(dateString);
@@ -292,9 +320,6 @@ export default function HistoryPage() {
     return false;
   };
 
-
-
-
   if (loading) {
     return (
       <div className="history-page">
@@ -362,7 +387,7 @@ export default function HistoryPage() {
         <div className="search-container">
           <input
             type="text"
-            placeholder="Search equipment..."
+            placeholder="Search equipment or batch ID..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="search-input"
@@ -381,14 +406,30 @@ export default function HistoryPage() {
           <option value="Rejected">Rejected</option>
         </select>
 
+        <select
+          value={filterBatch}
+          onChange={(e) => setFilterBatch(e.target.value)}
+          className="filter-select"
+        >
+          <option value="All">All Requests</option>
+          <option value="Batch">Batch Requests</option>
+          <option value="Individual">Individual Requests</option>
+        </select>
 
-
-
+        <label className="filter-select" style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer" }}>
+          <input
+            type="checkbox"
+            checked={groupByBatch}
+            onChange={(e) => setGroupByBatch(e.target.checked)}
+            style={{ cursor: "pointer" }}
+          />
+          <span>Group by Batch</span>
+        </label>
       </div>
 
       {/* Table */}
       <div className="table-container">
-        {currentItems.length > 0 ? (
+        {hasHistoryToDisplay ? (
           <>
             <div className="table-wrapper">
               <table className="history-table">
@@ -406,113 +447,201 @@ export default function HistoryPage() {
                   </tr>
                 </thead>
                 <tbody className="table-body">
-                  {currentItems.map((entry) => (
-                    <tr key={entry.id}>
-                      <td className="table-cell">{entry.action}</td>
-                      <td className="table-cell equipment-name">{entry.equipmentName}</td>
-                      <td className="table-cell">{getBorrowerName(entry.userId)}</td>
-                      <td className="table-cell">{entry.adviserName || "Unknown"}</td>
-                      <td className="table-cell">
-                        <span className={`status-badge ${getStatusClass(entry.status)}`}>
-                          {entry.status}
-                        </span>
-                      </td>
-                      <td className="table-cell date-cell">
-                        <div>{formatDate(entry.releasedDate)}</div>
-                        <div className="date-time">{formatTime(entry.releasedDate)}</div>
-                      </td>
-                      <td className="table-cell date-cell">
-                        {entry.returnDate ? (
-                          <>
-                            <div>{formatDate(entry.returnDate)}</div>
-                            <div className="date-time">{formatTime(entry.returnDate)}</div>
-                          </>
-                        ) : (
-                          '-'
-                        )}
-                      </td>
-                      <td className="table-cell date-cell">{entry.condition}</td>
-                      <td className="table-cell">
-                        <button
-                          onClick={() => handleViewDetails(entry)}
-                          className="view-button"
-                          title="View Details"
-                        >
-                           <img src={eyeIcon} alt="View" style={{ width: '18px', height: '18px' }} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                  {groupByBatch && groupedHistory
+                    ? groupedHistory.map((group) => (
+                        <Fragment key={group.batchId || "individual"}>
+                          {group.isBatch && (
+                            <tr
+                              className="batch-header-row"
+                              style={{ backgroundColor: "#f0f9ff", fontWeight: "bold" }}
+                            >
+                              <td colSpan="9" style={{ padding: "12px" }}>
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "space-between",
+                                    gap: "12px",
+                                    flexWrap: "wrap",
+                                  }}
+                                >
+                                  <div style={{ display: "flex", flexWrap: "wrap", gap: "12px", alignItems: "center" }}>
+                                    <span
+                                      style={{
+                                        backgroundColor: "#3b82f6",
+                                        color: "white",
+                                        padding: "4px 12px",
+                                        borderRadius: "999px",
+                                        fontSize: "12px",
+                                      }}
+                                    >
+                                      Batch of {group.batchSize || group.entries.length} items
+                                    </span>
+                                    <span
+                                      style={{
+                                        fontFamily: "monospace",
+                                        color: "#1e40af",
+                                        fontSize: "12px",
+                                      }}
+                                    >
+                                      Batch ID: {group.batchId}
+                                    </span>
+                                  </div>
+                                  <span style={{ fontSize: "12px", color: "#6b7280" }}>
+                                    Showing {group.entries.length} entr{group.entries.length === 1 ? "y" : "ies"}
+                                  </span>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                          {group.entries.map((entry) => (
+                            <tr key={entry.id}>
+                              <td className="table-cell">{entry.action}</td>
+                              <td className="table-cell equipment-name">{entry.equipmentName}</td>
+                              <td className="table-cell">{getBorrowerName(entry.userId)}</td>
+                              <td className="table-cell">{entry.adviserName || "Unknown"}</td>
+                              <td className="table-cell">
+                                <span className={`status-badge ${getStatusClass(entry.status)}`}>
+                                  {entry.status}
+                                </span>
+                              </td>
+                              <td className="table-cell date-cell">
+                                <div>{formatDate(entry.releasedDate)}</div>
+                                <div className="date-time">{formatTime(entry.releasedDate)}</div>
+                              </td>
+                              <td className="table-cell date-cell">
+                                {entry.returnDate ? (
+                                  <>
+                                    <div>{formatDate(entry.returnDate)}</div>
+                                    <div className="date-time">{formatTime(entry.returnDate)}</div>
+                                  </>
+                                ) : (
+                                  '-'
+                                )}
+                              </td>
+                              <td className="table-cell date-cell">{entry.condition}</td>
+                              <td className="table-cell">
+                                <button
+                                  onClick={() => handleViewDetails(entry)}
+                                  className="view-button"
+                                  title="View Details"
+                                >
+                                   <img src={eyeIcon} alt="View" style={{ width: '18px', height: '18px' }} />
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </Fragment>
+                      ))
+                    : currentItems.map((entry) => (
+                        <tr key={entry.id}>
+                          <td className="table-cell">{entry.action}</td>
+                          <td className="table-cell equipment-name">{entry.equipmentName}</td>
+                          <td className="table-cell">{getBorrowerName(entry.userId)}</td>
+                          <td className="table-cell">{entry.adviserName || "Unknown"}</td>
+                          <td className="table-cell">
+                            <span className={`status-badge ${getStatusClass(entry.status)}`}>
+                              {entry.status}
+                            </span>
+                          </td>
+                          <td className="table-cell date-cell">
+                            <div>{formatDate(entry.releasedDate)}</div>
+                            <div className="date-time">{formatTime(entry.releasedDate)}</div>
+                          </td>
+                          <td className="table-cell date-cell">
+                            {entry.returnDate ? (
+                              <>
+                                <div>{formatDate(entry.returnDate)}</div>
+                                <div className="date-time">{formatTime(entry.returnDate)}</div>
+                              </>
+                            ) : (
+                              '-'
+                            )}
+                          </td>
+                          <td className="table-cell date-cell">{entry.condition}</td>
+                          <td className="table-cell">
+                            <button
+                              onClick={() => handleViewDetails(entry)}
+                              className="view-button"
+                              title="View Details"
+                            >
+                               <img src={eyeIcon} alt="View" style={{ width: '18px', height: '18px' }} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
                 </tbody>
               </table>
             </div>
 
             {/* Pagination */}
-            <div className="pagination-container">
-              <div className="pagination-info">
-                Showing <strong>{filteredHistory.length === 0 ? 0 : indexOfFirstItem + 1}</strong> to <strong>{Math.min(indexOfLastItem, filteredHistory.length)}</strong> of <strong>{filteredHistory.length}</strong> entries
-              </div>
-
-              <div className="pagination-controls">
-                <button
-                  onClick={() => paginate(1)}
-                  disabled={currentPage === 1}
-                  className="pagination-arrow"
-                  aria-label="First page"
-                >
-                  «
-                </button>
-                <button
-                  onClick={() => paginate(currentPage - 1)}
-                  disabled={currentPage === 1}
-                  className="pagination-arrow"
-                  aria-label="Previous page"
-                >
-                  ‹
-                </button>
-
-                <div className="pagination-pages">
-                  {(() => {
-                    const pages = [];
-                    if (totalPages === 0) return pages;
-                    let start = Math.max(1, currentPage - 1);
-                    let end = Math.min(totalPages, start + 2);
-                    if (end - start < 2) {
-                      start = Math.max(1, end - 2);
-                    }
-                    for (let page = start; page <= end; page += 1) {
-                      pages.push(
-                        <button
-                          key={page}
-                          onClick={() => paginate(page)}
-                          className={`pagination-page ${currentPage === page ? 'active' : ''}`}
-                        >
-                          {page}
-                        </button>
-                      );
-                    }
-                    return pages;
-                  })()}
+            {!groupByBatch && (
+              <div className="pagination-container">
+                <div className="pagination-info">
+                  Showing <strong>{filteredHistory.length === 0 ? 0 : indexOfFirstItem + 1}</strong> to <strong>{Math.min(indexOfLastItem, filteredHistory.length)}</strong> of <strong>{filteredHistory.length}</strong> entries
                 </div>
 
-                <button
-                  onClick={() => paginate(currentPage + 1)}
-                  disabled={currentPage === totalPages || totalPages === 0}
-                  className="pagination-arrow"
-                  aria-label="Next page"
-                >
-                  ›
-                </button>
-                <button
-                  onClick={() => paginate(totalPages || 1)}
-                  disabled={currentPage === totalPages || totalPages === 0}
-                  className="pagination-arrow"
-                  aria-label="Last page"
-                >
-                  »
-                </button>
+                <div className="pagination-controls">
+                  <button
+                    onClick={() => paginate(1)}
+                    disabled={currentPage === 1}
+                    className="pagination-arrow"
+                    aria-label="First page"
+                  >
+                    «
+                  </button>
+                  <button
+                    onClick={() => paginate(currentPage - 1)}
+                    disabled={currentPage === 1}
+                    className="pagination-arrow"
+                    aria-label="Previous page"
+                  >
+                    ‹
+                  </button>
+
+                  <div className="pagination-pages">
+                    {(() => {
+                      const pages = [];
+                      if (totalPages === 0) return pages;
+                      let start = Math.max(1, currentPage - 1);
+                      let end = Math.min(totalPages, start + 2);
+                      if (end - start < 2) {
+                        start = Math.max(1, end - 2);
+                      }
+                      for (let page = start; page <= end; page += 1) {
+                        pages.push(
+                          <button
+                            key={page}
+                            onClick={() => paginate(page)}
+                            className={`pagination-page ${currentPage === page ? 'active' : ''}`}
+                          >
+                            {page}
+                          </button>
+                        );
+                      }
+                      return pages;
+                    })()}
+                  </div>
+
+                  <button
+                    onClick={() => paginate(currentPage + 1)}
+                    disabled={currentPage === totalPages || totalPages === 0}
+                    className="pagination-arrow"
+                    aria-label="Next page"
+                  >
+                    ›
+                  </button>
+                  <button
+                    onClick={() => paginate(totalPages || 1)}
+                    disabled={currentPage === totalPages || totalPages === 0}
+                    className="pagination-arrow"
+                    aria-label="Last page"
+                  >
+                    »
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
           </>
         ) : (
           <div className="empty-state">
@@ -548,6 +677,18 @@ export default function HistoryPage() {
                       <div className="detail-label">Equipment:</div>
                       <div className="detail-value">{selectedEntry.equipmentName}</div>
                     </div>
+                    {selectedEntry.batchId && (
+                      <>
+                        <div className="detail-item">
+                          <div className="detail-label">Batch ID:</div>
+                          <div className="detail-value" style={{ fontFamily: "monospace" }}>{selectedEntry.batchId}</div>
+                        </div>
+                        <div className="detail-item">
+                          <div className="detail-label">Batch Size:</div>
+                          <div className="detail-value">{selectedEntry.batchSize || 'N/A'}</div>
+                        </div>
+                      </>
+                    )}
                     <div className="detail-item">
                       <div className="detail-label">Borrower Name:</div>
                       <div className="detail-value highlight-text">{getBorrowerName(selectedEntry.userId)}</div>

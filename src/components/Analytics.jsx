@@ -32,7 +32,7 @@ export default function Analytics() {
   });
   const [loading, setLoading] = useState(true);
   const [selectedPeriod, setSelectedPeriod] = useState("30"); // days
-  const [activeTab, setActiveTab] = useState("overview");
+  const [activeTab, setActiveTab] = useState("users");
 
   useEffect(() => {
     loadAnalyticsData();
@@ -697,18 +697,6 @@ export default function Analytics() {
       {/* Analytics Navigation */}
       <div className="analytics-nav">
         <button 
-          className={`nav-tab ${activeTab === "overview" ? "active" : ""}`}
-          onClick={() => setActiveTab("overview")}
-        >
-          Overview
-        </button>
-        <button 
-          className={`nav-tab ${activeTab === "equipment" ? "active" : ""}`}
-          onClick={() => setActiveTab("equipment")}
-        >
-          Equipment
-        </button>
-        <button 
           className={`nav-tab ${activeTab === "users" ? "active" : ""}`}
           onClick={() => setActiveTab("users")}
         >
@@ -730,116 +718,6 @@ export default function Analytics() {
 
       {/* Analytics Content */}
       <div className="analytics-content">
-        {activeTab === "overview" && (
-          <div className="overview-tab">
-            {/* Key Metrics */}
-            <div className="metrics-grid">
-              <div className="metric-card primary">
-                <div className="metric-icon">📊</div>
-                <div className="metric-content">
-                  <div className="metric-value">{analyticsData.equipmentStats.total}</div>
-                  <div className="metric-label">Total Equipment</div>
-                </div>
-              </div>
-              
-              <div className="metric-card success">
-                <div className="metric-icon">✅</div>
-                <div className="metric-content">
-                  <div className="metric-value">{analyticsData.equipmentStats.utilizationRate}%</div>
-                  <div className="metric-label">Utilization Rate</div>
-                </div>
-              </div>
-              
-              <div className="metric-card warning">
-                <div className="metric-icon">🔧</div>
-                <div className="metric-content">
-                  <div className="metric-value">{analyticsData.maintenanceStats.currentMaintenance}</div>
-                  <div className="metric-label">Under Maintenance</div>
-                </div>
-              </div>
-              
-              <div className="metric-card info">
-                <div className="metric-icon">👥</div>
-                <div className="metric-content">
-                  <div className="metric-value">{analyticsData.userActivity.totalActiveUsers}</div>
-                  <div className="metric-label">Active Users</div>
-                </div>
-              </div>
-            </div>
-
-            {/* Equipment Status Chart */}
-            <div className="chart-section">
-              <div className="chart-card">
-                <h3>Equipment Status Distribution</h3>
-                <div className="pie-chart">
-                  <div className="pie-slice available" style={{
-                    '--percentage': analyticsData.equipmentStats.total > 0 ? (analyticsData.equipmentStats.available / analyticsData.equipmentStats.total) * 100 : 0
-                  }}>
-                    <span>Available ({analyticsData.equipmentStats.available})</span>
-                  </div>
-                  <div className="pie-slice in-use" style={{
-                    '--percentage': analyticsData.equipmentStats.total > 0 ? (analyticsData.equipmentStats.inUse / analyticsData.equipmentStats.total) * 100 : 0
-                  }}>
-                    <span>In Use ({analyticsData.equipmentStats.inUse})</span>
-                  </div>
-                  <div className="pie-slice maintenance" style={{
-                    '--percentage': analyticsData.equipmentStats.total > 0 ? (analyticsData.equipmentStats.maintenance / analyticsData.equipmentStats.total) * 100 : 0
-                  }}>
-                    <span>Maintenance ({analyticsData.equipmentStats.maintenance})</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Category Breakdown */}
-              <div className="chart-card">
-                <h3>Most Borrowed Categories</h3>
-                <div className="category-chart">
-                  {analyticsData.categoryBreakdown.slice(0, 5).map((category, index) => (
-                    <div key={category.name} className="category-bar">
-                      <div className="category-label">{category.name}</div>
-                      <div className="category-bar-container">
-                        <div 
-                          className="category-bar-fill"
-                          style={{
-                            width: `${(category.count / Math.max(...analyticsData.categoryBreakdown.map(c => c.count))) * 100}%`,
-                            backgroundColor: category.color
-                          }}
-                        ></div>
-                        <span className="category-count">{category.count}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === "equipment" && (
-          <div className="equipment-tab">
-            <div className="equipment-analytics">
-              <div className="chart-card full-width">
-                <h3>Equipment Utilization Trends</h3>
-                <div className="line-chart">
-                  <div className="line-chart-container">
-                    {analyticsData.borrowingTrends.map((point, index) => (
-                      <div key={point.date} className="chart-point">
-                        <div 
-                          className="point"
-                          style={{
-                            height: `${(point.requests / Math.max(...analyticsData.borrowingTrends.map(p => p.requests))) * 100}%`
-                          }}
-                        ></div>
-                        <span className="point-label">{formatDate(point.date)}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
         {activeTab === "users" && (
           <div className="users-tab">
             <div className="chart-card">

@@ -44,7 +44,9 @@ export default function RequestFormsPage() {
   const [signatureCanvasRef, setSignatureCanvasRef] = useState(null);
   const [returnFormData, setReturnFormData] = useState({
     condition: "good",
+    conditionNotes: "",
     delayReason: "",
+    delayNotes: "",
     notes: "",
     returnedQuantity: "1",
   });
@@ -735,7 +737,8 @@ export default function RequestFormsPage() {
                 requestData,
                 equipment,
                 laboratory,
-                "Admin"
+                "Admin",
+                getBorrowerName(requestData.userId)
               );
               break;
             case "rejected":
@@ -751,7 +754,8 @@ export default function RequestFormsPage() {
                 requestData,
                 equipment,
                 laboratory,
-                returnDetails
+                returnDetails,
+                getBorrowerName(requestData.userId)
               );
               break;
             default:
@@ -989,7 +993,9 @@ export default function RequestFormsPage() {
     setSelectedRequest(request);
     setReturnFormData({
       condition: "good",
+      conditionNotes: "",
       delayReason: "",
+      delayNotes: "",
       notes: "",
       returnedQuantity: String(request.quantity || 1),
     });
@@ -1001,7 +1007,9 @@ export default function RequestFormsPage() {
     setShowReturnModal(false);
     setReturnFormData({
       condition: "good",
+      conditionNotes: "",
       delayReason: "",
+      delayNotes: "",
       notes: "",
       returnedQuantity: "1",
     });
@@ -1103,7 +1111,9 @@ export default function RequestFormsPage() {
 
       const returnDetails = {
         condition: returnFormData.condition,
+        conditionNotes: returnFormData.conditionNotes,
         delayReason: returnFormData.delayReason,
+        delayNotes: returnFormData.delayNotes,
         notes: returnFormData.notes,
         returnedQuantity: adjustedReturnedQuantity,
         processedBy: "Admin", // You can get actual admin name from auth
@@ -2296,6 +2306,10 @@ export default function RequestFormsPage() {
                       setReturnFormData((prev) => ({
                         ...prev,
                         condition: e.target.value,
+                        conditionNotes:
+                          e.target.value === "damaged" || e.target.value === "lost"
+                            ? prev.conditionNotes
+                            : "",
                       }))
                     }
                     className="form-select"
@@ -2306,6 +2320,26 @@ export default function RequestFormsPage() {
                   </select>
                 </div>
 
+                {(returnFormData.condition === "damaged" ||
+                  returnFormData.condition === "lost") && (
+                  <div className="form-group">
+                    <label htmlFor="conditionNotes">Reason for Damage/Loss:</label>
+                    <textarea
+                      id="conditionNotes"
+                      value={returnFormData.conditionNotes}
+                      onChange={(e) =>
+                        setReturnFormData((prev) => ({
+                          ...prev,
+                          conditionNotes: e.target.value,
+                        }))
+                      }
+                      placeholder="Provide details about the damage or loss..."
+                      className="form-textarea"
+                      rows="3"
+                    />
+                  </div>
+                )}
+
                 <div className="form-group">
                   <label htmlFor="delayReason">Return Status:</label>
                   <select
@@ -2315,6 +2349,8 @@ export default function RequestFormsPage() {
                       setReturnFormData((prev) => ({
                         ...prev,
                         delayReason: e.target.value,
+                        delayNotes:
+                          e.target.value === "late" ? prev.delayNotes : "",
                       }))
                     }
                     className="form-select"
@@ -2330,11 +2366,11 @@ export default function RequestFormsPage() {
                     <label htmlFor="delayNotes">Reason for Delay:</label>
                     <textarea
                       id="delayNotes"
-                      value={returnFormData.notes}
+                      value={returnFormData.delayNotes}
                       onChange={(e) =>
                         setReturnFormData((prev) => ({
                           ...prev,
-                          notes: e.target.value,
+                          delayNotes: e.target.value,
                         }))
                       }
                       placeholder="Please explain the reason for the delay..."

@@ -96,7 +96,14 @@ export const notifyRequestApproved = async (requestData, equipmentData, laborato
     return;
   }
 
-  const borrowerName = studentName || requestData.adviserName || "Unknown Student";
+  const borrowerName =
+    studentName ||
+    requestData.borrowerName ||
+    requestData.userName ||
+    requestData.studentName ||
+    requestData.displayName ||
+    requestData.userEmail ||
+    "Unknown Borrower";
   const title = "Equipment Request Approved";
   const message = `The request for "${requestData.itemName}" by ${borrowerName} has been approved by ${approvedBy}. Please prepare the equipment for release.`;
 

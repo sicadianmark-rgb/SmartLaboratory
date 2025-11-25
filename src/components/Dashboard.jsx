@@ -571,18 +571,6 @@ export default function Dashboard() {
         const releasedItems = Object.values(historyData).filter(
           (entry) => entry.status === "Released"
         );
-        const totalBorrowed = releasedItems.reduce(
-          (sum, entry) =>
-            sum +
-            Number(
-              entry.quantityReleased ||
-                entry.approvedQuantity ||
-                entry.quantity ||
-                1
-            ),
-          0
-        );
-        setTotalItemsBorrowedFromHistory(totalBorrowed);
 
         const matchesLaboratoryAccess = (entry) => {
           if (isAdmin()) return true;
@@ -642,6 +630,12 @@ export default function Dashboard() {
         const filteredEntries = releasedItems
           .filter(matchesLaboratoryAccess)
           .filter(matchesTimeFilter);
+
+        const totalBorrowed = filteredEntries.reduce(
+          (sum, entry) => sum + getHistoryEntryQuantity(entry),
+          0
+        );
+        setTotalItemsBorrowedFromHistory(totalBorrowed);
 
         const aggregatedData = filteredEntries.reduce((acc, entry) => {
           const name = getHistoryEntryName(entry);

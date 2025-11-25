@@ -711,226 +711,339 @@ export default function Analytics() {
       };
     });
 
-    return {
-      monthlyTotals: totalsArray,
-      monthlyTrends: trendsArray
-    };
+  return {
+    monthlyTotals: totalsArray,
+    monthlyTrends: trendsArray
   };
+};
 
-  const calculateUtilizationRates = (equipment, history, periodDays) => {
-    const totalEquipment = equipment.length;
-    const inUseEquipment = equipment.filter(eq => eq.status === 'In Use' || eq.status === 'in_use' || eq.status === 'in use').length;
-    
-    return {
-      overall: totalEquipment > 0 ? Math.round((inUseEquipment / totalEquipment) * 100) : 0,
-      byCategory: {}
-    };
+const calculateUtilizationRates = (equipment, history, periodDays) => {
+  const totalEquipment = equipment.length;
+  const inUseEquipment = equipment.filter(
+    eq => eq.status === 'In Use' || eq.status === 'in_use' || eq.status === 'in use'
+  ).length;
+
+  return {
+    overall: totalEquipment > 0 ? Math.round((inUseEquipment / totalEquipment) * 100) : 0,
+    byCategory: {}
   };
+};
 
-  // Keyword Matching Functions
-  const categorizeDamage = (text) => {
-    if (!text || text.trim().length === 0) return 'Other';
-    const lowerText = text.toLowerCase().trim();
-    
-    // Skip generic damage descriptions that don't help with categorization
-    if (lowerText === 'damaged' || lowerText === 'returned damaged' || 
-        lowerText === 'item damaged' || lowerText === 'damage') {
-      return 'Other';
-    }
-    
-    // Check for Cracked (check first as it's more specific)
-    if (lowerText.includes('cracked') || lowerText.includes('fissure') || 
-        lowerText.includes('crack') || lowerText.includes('fracture') ||
-        lowerText.includes('fractured') || lowerText.includes('split') ||
-        lowerText.includes('splintered') || lowerText.includes('cracking')) {
-      return 'Cracked';
-    }
-    
-    // Check for Broken
-    if (lowerText.includes('shattered') || lowerText.includes('pieces') ||
-        lowerText.includes('broken') || lowerText.includes('broke') ||
-        lowerText.includes('smashed') || lowerText.includes('destroyed') ||
-        lowerText.includes('shatter') || lowerText.includes('busted') ||
-        lowerText.includes('snapped') || lowerText.includes('torn apart') ||
-        lowerText.includes('not working') || lowerText.includes('malfunction') ||
-        lowerText.includes('doesn\'t work') || lowerText.includes('won\'t work')) {
-      return 'Broken';
-    }
-    
-    // Check for Chipped
-    if (lowerText.includes('chipped') || lowerText.includes('chip') ||
-        lowerText.includes('chunk') || lowerText.includes('piece missing') ||
-        lowerText.includes('chipped off') || lowerText.includes('piece broke off') ||
-        lowerText.includes('piece fell off') || lowerText.includes('missing piece')) {
-      return 'Chipped';
-    }
-    
-    // Check for Scratched
-    if (lowerText.includes('scratched') || lowerText.includes('scratch') ||
-        lowerText.includes('scrape') || lowerText.includes('abrasion') ||
-        lowerText.includes('surface damage') || lowerText.includes('scraped') ||
-        lowerText.includes('gouge') || lowerText.includes('gouged') ||
-        lowerText.includes('surface wear') || lowerText.includes('worn') ||
-        lowerText.includes('faded') || lowerText.includes('discolored')) {
-      return 'Scratched';
-    }
-    
+// Keyword Matching Functions
+const categorizeDamage = (text) => {
+  if (!text || text.trim().length === 0) return 'Other';
+  const lowerText = text.toLowerCase().trim();
+  
+  // Skip generic damage descriptions that don't help with categorization
+  if (lowerText === 'damaged' || lowerText === 'returned damaged' || 
+      lowerText === 'item damaged' || lowerText === 'damage') {
     return 'Other';
-  };
+  }
+  
+  // Check for Cracked (check first as it's more specific)
+  if (
+    lowerText.includes('cracked') ||
+    lowerText.includes('cracking') ||
+    lowerText.includes('crack') ||
+    lowerText.includes('cracks') ||
+    lowerText.includes('fracture') ||
+    lowerText.includes('fractured') ||
+    lowerText.includes('fracturing') ||
+    lowerText.includes('fissure') ||
+    lowerText.includes('split') ||
+    lowerText.includes('splitting') ||
+    lowerText.includes('splintered') ||
+    lowerText.includes('splintering') ||
+    lowerText.includes('will crack') ||
+    lowerText.includes('will be cracked') ||
+    lowerText.includes('might crack') ||
+    lowerText.includes('going to crack')
+  ) {
+    return 'Cracked';
+  }
+  
+  // Check for Broken
+  if (
+    lowerText.includes('shattered') ||
+    lowerText.includes('shattering') ||
+    lowerText.includes('pieces') ||
+    lowerText.includes('broken') ||
+    lowerText.includes('broke') ||
+    lowerText.includes('breaking') ||
+    lowerText.includes('breaks') ||
+    lowerText.includes('smashed') ||
+    lowerText.includes('smashing') ||
+    lowerText.includes('destroyed') ||
+    lowerText.includes('destroying') ||
+    lowerText.includes('shatter') ||
+    lowerText.includes('busted') ||
+    lowerText.includes('snapped') ||
+    lowerText.includes('snapping') ||
+    lowerText.includes('torn apart') ||
+    lowerText.includes('tearing apart') ||
+    lowerText.includes('not working') ||
+    lowerText.includes('malfunction') ||
+    lowerText.includes('malfunctioning') ||
+    lowerText.includes("doesn't work") ||
+    lowerText.includes("won't work") ||
+    lowerText.includes('will break') ||
+    lowerText.includes('will be broken') ||
+    lowerText.includes('might break') ||
+    lowerText.includes('going to break')
+  ) {
+    return 'Broken';
+  }
+  
+  // Check for Chipped
+  if (
+    lowerText.includes('chipped') ||
+    lowerText.includes('chipping') ||
+    lowerText.includes('chip') ||
+    lowerText.includes('chips') ||
+    lowerText.includes('chunk') ||
+    lowerText.includes('piece missing') ||
+    lowerText.includes('chipped off') ||
+    lowerText.includes('piece broke off') ||
+    lowerText.includes('piece fell off') ||
+    lowerText.includes('missing piece') ||
+    lowerText.includes('will chip') ||
+    lowerText.includes('might chip') ||
+    lowerText.includes('going to chip')
+  ) {
+    return 'Chipped';
+  }
+  
+  // Check for Scratched
+  if (
+    lowerText.includes('scratched') ||
+    lowerText.includes('scratching') ||
+    lowerText.includes('scratch') ||
+    lowerText.includes('scratches') ||
+    lowerText.includes('scrape') ||
+    lowerText.includes('scraping') ||
+    lowerText.includes('abrasion') ||
+    lowerText.includes('surface damage') ||
+    lowerText.includes('scraped') ||
+    lowerText.includes('gouge') ||
+    lowerText.includes('gouged') ||
+    lowerText.includes('surface wear') ||
+    lowerText.includes('worn') ||
+    lowerText.includes('faded') ||
+    lowerText.includes('discolored') ||
+    lowerText.includes('will scratch') ||
+    lowerText.includes('might scratch') ||
+    lowerText.includes('going to scratch')
+  ) {
+    return 'Scratched';
+  }
+  
+  return 'Other';
+};
 
-  const categorizeLostItem = (text) => {
-    if (!text) return 'Unknown';
-    const lowerText = text.toLowerCase();
-    
-    // Check for Stolen (check first as it's more specific)
-    if (lowerText.includes('stolen') || lowerText.includes('theft') ||
-        lowerText.includes('robbed') || lowerText.includes('taken') ||
-        lowerText.includes('stole') || lowerText.includes('theft') ||
-        lowerText.includes('burglary') || lowerText.includes('stolen from')) {
-      return 'Stolen';
-    }
-    
-    // Check for Forgotten / Misplaced
-if (
-  lowerText.includes('forget') || lowerText.includes('forgets') || lowerText.includes('forgetting') ||
-  lowerText.includes('forgot') || lowerText.includes('forgotten') ||
-  lowerText.includes('neglect') || lowerText.includes('neglects') ||
-  lowerText.includes('neglected') || lowerText.includes('neglecting') ||
-  lowerText.includes('overlook') || lowerText.includes('overlooks') ||
-  lowerText.includes('overlooked') || lowerText.includes('overlooking') ||
-  lowerText.includes('slipped my mind') || lowerText.includes('disregarded') ||
-  lowerText.includes('disregarding') || lowerText.includes('unremembered') ||
-  lowerText.includes('ignore') || lowerText.includes('ignores') ||
-  lowerText.includes('ignored') || lowerText.includes('ignoring') ||
-  lowerText.includes('omitted') || lowerText.includes('omitting') ||
-  lowerText.includes('omit') || lowerText.includes('unnoticed') ||
-  lowerText.includes('pass over') || lowerText.includes('passed over') ||
-  lowerText.includes('passing over') || lowerText.includes('missed') ||
-  lowerText.includes('miss') || lowerText.includes('missing') ||
-  lowerText.includes('unheeded') || lowerText.includes('lost track of') ||
-  lowerText.includes('losing track of') || lowerText.includes('didn\'t recall') ||
-  lowerText.includes('do not recall') || lowerText.includes('does not recall')
-) {
-  return 'Forgotten / Misplaced';
-}
+const categorizeLostItem = (text) => {
+  if (!text) return 'Unknown';
+  const lowerText = text.toLowerCase();
+  
+  // Check for Stolen (check first as it's more specific)
+  if (
+    lowerText.includes('stolen') ||
+    lowerText.includes('stealing') ||
+    lowerText.includes('theft') ||
+    lowerText.includes('robbed') ||
+    lowerText.includes('robbing') ||
+    lowerText.includes('taken') ||
+    lowerText.includes('taking') ||
+    lowerText.includes('stole') ||
+    lowerText.includes('steals') ||
+    lowerText.includes('burglary') ||
+    lowerText.includes('stolen from') ||
+    lowerText.includes('will steal') ||
+    lowerText.includes('will be stolen') ||
+    lowerText.includes('might steal') ||
+    lowerText.includes('going to steal')
+  ) {
+    return 'Stolen';
+  }
+  
+  // Check for Forgotten / Misplaced
+  if (
+    lowerText.includes('forget') ||
+    lowerText.includes('forgets') ||
+    lowerText.includes('forgetting') ||
+    lowerText.includes('forgot') ||
+    lowerText.includes('forgotten') ||
+    lowerText.includes('neglect') ||
+    lowerText.includes('neglects') ||
+    lowerText.includes('neglected') ||
+    lowerText.includes('neglecting') ||
+    lowerText.includes('overlook') ||
+    lowerText.includes('overlooks') ||
+    lowerText.includes('overlooked') ||
+    lowerText.includes('overlooking') ||
+    lowerText.includes('slipped my mind') ||
+    lowerText.includes('disregarded') ||
+    lowerText.includes('disregarding') ||
+    lowerText.includes('unremembered') ||
+    lowerText.includes('ignore') ||
+    lowerText.includes('ignores') ||
+    lowerText.includes('ignored') ||
+    lowerText.includes('ignoring') ||
+    lowerText.includes('omitted') ||
+    lowerText.includes('omitting') ||
+    lowerText.includes('omit') ||
+    lowerText.includes('unnoticed') ||
+    lowerText.includes('pass over') ||
+    lowerText.includes('passed over') ||
+    lowerText.includes('passing over') ||
+    lowerText.includes('missed') ||
+    lowerText.includes('miss') ||
+    lowerText.includes('missing') ||
+    lowerText.includes('unheeded') ||
+    lowerText.includes('lost track of') ||
+    lowerText.includes('losing track of') ||
+    lowerText.includes("didn't recall") ||
+    lowerText.includes('do not recall') ||
+    lowerText.includes('does not recall') ||
+    lowerText.includes('will forget') ||
+    lowerText.includes('will probably forget') ||
+    lowerText.includes('might forget') ||
+    lowerText.includes('going to forget')
+  ) {
+    return 'Forgotten / Misplaced';
+  }
 
-    return 'Unknown';
-  };
+  return 'Unknown';
+};
 
-  const categorizeLateReturn = (text) => {
-    if (!text || text.trim().length === 0) return 'Other';
-    const lowerText = text
-      .toLowerCase()
-      .replace(/[’‘]/g, "'")
-      .trim();
-
-    // Skip overly generic phrases that don't help classification
-    if (
-      lowerText === 'late return' ||
-      lowerText === 'late' ||
-      lowerText === 'returned late'
-    ) {
-      return 'Other';
-    }
-
-    // Forgot to return
-    if (
-      lowerText.includes('forget') ||
-      lowerText.includes('forgets') ||
-      lowerText.includes('forgetting') ||
-      lowerText.includes('forgot') ||
-      lowerText.includes('forgotten') ||
-      lowerText.includes('left it') ||
-      lowerText.includes('left behind') ||
-      lowerText.includes('leaving it') ||
-      lowerText.includes('overlooked') ||
-      lowerText.includes('overlooking') ||
-      lowerText.includes('did not remember') ||
-      lowerText.includes("didn't remember") ||
-      lowerText.includes("i didn't remember") ||
-      lowerText.includes("i didnt remember") ||
-      lowerText.includes("i don't remember") ||
-      lowerText.includes("i dont remember") ||
-      lowerText.includes('forgot to return') ||
-      lowerText.includes('forgetting to return')
-    ) {
-      return 'Forgot to Return';
-    }
-
-    // Extended use / still needed
-    if (
-      lowerText.includes('still') ||
-      lowerText.includes('still used') ||
-      lowerText.includes('still using') ||
-      lowerText.includes('still need') ||
-      lowerText.includes('still needs') ||
-      lowerText.includes('still needed') ||
-      lowerText.includes('ongoing') ||
-      lowerText.includes('extend') ||
-      lowerText.includes('extends') ||
-      lowerText.includes('extended') ||
-      lowerText.includes('extending') ||
-      lowerText.includes('extended use') ||
-      lowerText.includes('extension') ||
-      lowerText.includes('not done') ||
-      lowerText.includes('not finished') ||
-      lowerText.includes('unfinished') ||
-      lowerText.includes('finishing') ||
-      lowerText.includes('need more time') ||
-      lowerText.includes('needed more time') ||
-      lowerText.includes('needing more time') ||
-      lowerText.includes('in use') ||
-      lowerText.includes('using it') ||
-      lowerText.includes('continued work') ||
-      lowerText.includes('continuing work') ||
-      lowerText.includes('continued the experiment') ||
-      lowerText.includes('continuing the experiment') ||
-      lowerText.includes('extra time')
-    ) {
-      return 'Extended Use';
-    }
-
-    // Emergency or unexpected conflict
-    if (
-      lowerText.includes('emergency') ||
-      lowerText.includes('emergencies') ||
-      lowerText.includes('urgent') ||
-      lowerText.includes('urgency') ||
-      lowerText.includes('sudden') ||
-      lowerText.includes('suddenly') ||
-      lowerText.includes('meeting') ||
-      lowerText.includes('meetings') ||
-      lowerText.includes('important event') ||
-      lowerText.includes('important events') ||
-      lowerText.includes('unexpected') ||
-      lowerText.includes('unexpectedly') ||
-      lowerText.includes('conflict') ||
-      lowerText.includes('conflicts') ||
-      lowerText.includes('problem came up') ||
-      lowerText.includes('problems came up') ||
-      lowerText.includes('issue arose') ||
-      lowerText.includes('issues arose')
-    ) {
-      return 'Unexpected Conflict';
-    }
-
+const categorizeLateReturn = (text) => {
+  if (!text || text.trim().length === 0) return 'Other';
+  const lowerText = text
+    .toLowerCase()
+    .replace(/[’‘]/g, "'")
+    .trim();
+  
+  // Skip overly generic phrases that don't help classification
+  if (
+    lowerText === 'late return' ||
+    lowerText === 'late' ||
+    lowerText === 'returned late'
+  ) {
     return 'Other';
-  };
+  }
 
-  // Diagnostic Analytics Functions
-  const calculateDiagnosticAnalytics = (borrowRequests, history, periodDays) => {
-    const periodDaysMs = periodDays * 24 * 60 * 60 * 1000;
-    const cutoffDate = new Date(Date.now() - periodDaysMs);
-    
-    const historyValues = Object.values(history);
-    const requests = Object.values(borrowRequests);
+  // Forgot to return
+  if (
+    lowerText.includes('forget') ||
+    lowerText.includes('forgets') ||
+    lowerText.includes('forgetting') ||
+    lowerText.includes('forgot') ||
+    lowerText.includes('forgotten') ||
+    lowerText.includes('left it') ||
+    lowerText.includes('left behind') ||
+    lowerText.includes('leaving it') ||
+    lowerText.includes('overlooked') ||
+    lowerText.includes('overlooking') ||
+    lowerText.includes('did not remember') ||
+    lowerText.includes("didn't remember") ||
+    lowerText.includes("i didn't remember") ||
+    lowerText.includes("i didnt remember") ||
+    lowerText.includes("i don't remember") ||
+    lowerText.includes("i dont remember") ||
+    lowerText.includes('forgot to return') ||
+    lowerText.includes('forgetting to return') ||
+    lowerText.includes('will forget to return') ||
+    lowerText.includes('might forget to return') ||
+    lowerText.includes('going to forget to return')
+  ) {
+    return 'Forgot to Return';
+  }
 
-    // 1. Equipment Damage Analysis
-    const damageEntries = historyValues.filter(h => {
-      if (!h.timestamp || new Date(h.timestamp) < cutoffDate) return false;
-      const condition = (h.condition || '').toLowerCase();
-      return condition.includes('damaged') || condition === 'returned damaged';
-    });
+  // Extended use / still needed
+  if (
+    lowerText.includes('still') ||
+    lowerText.includes('still used') ||
+    lowerText.includes('still using') ||
+    lowerText.includes('still need') ||
+    lowerText.includes('still needs') ||
+    lowerText.includes('still needed') ||
+    lowerText.includes('ongoing') ||
+    lowerText.includes('extend') ||
+    lowerText.includes('extends') ||
+    lowerText.includes('extended') ||
+    lowerText.includes('extending') ||
+    lowerText.includes('extended use') ||
+    lowerText.includes('extension') ||
+    lowerText.includes('not done') ||
+    lowerText.includes('not finished') ||
+    lowerText.includes('unfinished') ||
+    lowerText.includes('finishing') ||
+    lowerText.includes('need more time') ||
+    lowerText.includes('needs more time') ||
+    lowerText.includes('needed more time') ||
+    lowerText.includes('needing more time') ||
+    lowerText.includes('in use') ||
+    lowerText.includes('using it') ||
+    lowerText.includes('uses it') ||
+    lowerText.includes('keeps using') ||
+    lowerText.includes('continued work') ||
+    lowerText.includes('continuing work') ||
+    lowerText.includes('continued the experiment') ||
+    lowerText.includes('continuing the experiment') ||
+    lowerText.includes('extra time') ||
+    lowerText.includes('will still use') ||
+    lowerText.includes('will still need') ||
+    lowerText.includes('will continue using') ||
+    lowerText.includes('will need more time') ||
+    lowerText.includes('going to continue the experiment')
+  ) {
+    return 'Extended Use';
+  }
+
+  // Emergency or unexpected conflict
+  if (
+    lowerText.includes('emergency') ||
+    lowerText.includes('emergencies') ||
+    lowerText.includes('urgent') ||
+    lowerText.includes('urgency') ||
+    lowerText.includes('sudden') ||
+    lowerText.includes('suddenly') ||
+    lowerText.includes('meeting') ||
+    lowerText.includes('meetings') ||
+    lowerText.includes('important event') ||
+    lowerText.includes('important events') ||
+    lowerText.includes('unexpected') ||
+    lowerText.includes('unexpectedly') ||
+    lowerText.includes('conflict') ||
+    lowerText.includes('conflicts') ||
+    lowerText.includes('problem came up') ||
+    lowerText.includes('problems came up') ||
+    lowerText.includes('issue arose') ||
+    lowerText.includes('issues arose') ||
+    lowerText.includes('will have an emergency') ||
+    lowerText.includes('will attend a meeting') ||
+    lowerText.includes('going to a meeting') ||
+    lowerText.includes('something might come up')
+  ) {
+    return 'Unexpected Conflict';
+  }
+
+  return 'Other';
+};
+
+// Diagnostic Analytics Functions
+const calculateDiagnosticAnalytics = (borrowRequests, history, periodDays) => {
+  const periodDaysMs = periodDays * 24 * 60 * 60 * 1000;
+  const cutoffDate = new Date(Date.now() - periodDaysMs);
+  
+  const historyValues = Object.values(history);
+  const requests = Object.values(borrowRequests);
+
+  // 1. Equipment Damage Analysis
+  const damageEntries = historyValues.filter(h => {
+    if (!h.timestamp || new Date(h.timestamp) < cutoffDate) return false;
+    const condition = (h.condition || '').toLowerCase();
+    return condition.includes('damaged') || condition === 'returned damaged';
+  });
 
     const equipmentDamageAnalysis = {
       totalDamageIncidents: damageEntries.length,

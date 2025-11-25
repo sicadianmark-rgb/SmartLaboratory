@@ -54,7 +54,7 @@ export default function Analytics() {
   });
   const [loading, setLoading] = useState(true);
   const [selectedPeriod, setSelectedPeriod] = useState("30"); // days
-  const [activeTab, setActiveTab] = useState("users");
+  const [activeTab, setActiveTab] = useState("diagnostics");
   const [showReviewSection, setShowReviewSection] = useState(false);
 
   const chartPalette = {
@@ -1417,10 +1417,10 @@ if (
       {/* Analytics Navigation */}
       <div className="analytics-nav">
         <button 
-          className={`nav-tab ${activeTab === "users" ? "active" : ""}`}
-          onClick={() => setActiveTab("users")}
+          className={`nav-tab ${activeTab === "diagnostics" ? "active" : ""}`}
+          onClick={() => setActiveTab("diagnostics")}
         >
-          Users
+          Diagnostics
         </button>
         <button 
           className={`nav-tab ${activeTab === "trends" ? "active" : ""}`}
@@ -1429,10 +1429,10 @@ if (
           Trends
         </button>
         <button 
-          className={`nav-tab ${activeTab === "diagnostics" ? "active" : ""}`}
-          onClick={() => setActiveTab("diagnostics")}
+          className={`nav-tab ${activeTab === "users" ? "active" : ""}`}
+          onClick={() => setActiveTab("users")}
         >
-          Diagnostics
+          Users
         </button>
       </div>
 
@@ -2012,7 +2012,7 @@ if (
                   })()}
                 </div>
                 <div className="chart-card full-width reason-breakdown-card">
-                  <h3>Reason Breakdown Summary</h3>
+                  <h3>Late Return Breakdown Summary</h3>
                   {(() => {
                     const reasonTotals = analyticsData.diagnosticAnalytics.lateReturns?.reasons || {};
                     const totalLateReturns = analyticsData.diagnosticAnalytics.lateReturns?.totalLateReturns || 0;

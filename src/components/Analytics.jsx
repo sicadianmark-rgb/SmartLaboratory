@@ -175,30 +175,249 @@ export default function Analytics() {
     return allEquipment;
   };
 
+  const normalizeLabValue = (value) => (value || "").toString().trim().toLowerCase();
+
+  const buildEquipmentLookup = (equipmentList) => {
+    const byId = new Map();
+    const byName = new Map();
+
+    equipmentList.forEach((equipment) => {
+      const idCandidates = [
+        equipment.id,
+        equipment.equipmentId,
+        equipment.equipmentID,
+        equipment.itemId,
+        equipment.itemID,
+        equipment.equipmentRecordId,
+        equipment.assetId,
+        equipment.assetID
+      ];
+
+      idCandidates.forEach((identifier) => {
+        if (identifier) {
+          byId.set(identifier, equipment);
+        }
+      });
+
+      const nameCandidates = [
+        equipment.name,
+        equipment.itemName,
+        equipment.equipmentName,
+        equipment.title
+      ];
+
+      nameCandidates.forEach((name) => {
+        if (name) {
+          byName.set(normalizeLabValue(name), equipment);
+        }
+      });
+    });
+
+    return { byId, byName };
+  };
+
+  const findLaboratoryByIdentifier = (laboratories, identifier) => {
+    if (!identifier) return null;
+    return laboratories.find(
+      (lab) => lab.id === identifier || lab.labId === identifier || lab.labID === identifier
+    );
+  };
+
+  const findLaboratoryByName = (laboratories, labName) => {
+    if (!labName) return null;
+    const normalizedName = normalizeLabValue(labName);
+    return laboratories.find((lab) => normalizeLabValue(lab.labName) === normalizedName);
+  };
+
+  const getEquipmentFromLookup = (lookup, record) => {
+    if (!lookup || !record) return null;
+
+    const idCandidates = [
+      record.itemId,
+      record.itemID,
+      record.equipmentId,
+      record.equipmentID,
+      record.equipmentRecordId,
+      record.assetId,
+      record.assetID
+    ].filter(Boolean);
+
+    for (const id of idCandidates) {
+      if (lookup.byId.has(id)) {
+        return lookup.byId.get(id);
+      }
+    }
+
+    const nameCandidates = [
+      record.itemName,
+      record.equipmentName,
+      record.name,
+      record.title
+    ].filter(Boolean);
+
+    for (const name of nameCandidates) {
+      const normalized = normalizeLabValue(name);
+      if (lookup.byName.has(normalized)) {
+        return lookup.byName.get(normalized);
+      }
+    }
+
+    return null;
+  };
+
+  const recordBelongsToAssignedLabs = (record, laboratories, assignedLabIds, equipmentLookup) => {
+    if (!record || !assignedLabIds || assignedLabIds.length === 0) return false;
+
+    const matchesAssignedLab = (lab) => {
+      if (!lab) return false;
+      return assignedLabIds.includes(lab.id) || assignedLabIds.includes(lab.labId) || assignedLabIds.includes(lab.labID);
+    };
+
+    const checkSource = (source) => {
+      if (!source) return false;
+
+      const labIdentifiers = [
+        source.labRecordId,
+        source.labId,
+        source.labID,
+        source.laboratoryId,
+        source.laboratoryID,
+        source.laboratory
+      ].filter(Boolean);
+
+      for (const identifier of labIdentifiers) {
+        if (assignedLabIds.includes(identifier)) {
+          return true;
+        }
+
+        const lab = findLaboratoryByIdentifier(laboratories, identifier);
+        if (matchesAssignedLab(lab)) {
+          return true;
+        }
+      }
+
+      const labNames = [
+        source.laboratory,
+        source.laboratoryName,
+        source.labName,
+        source.lab
+      ].filter(Boolean);
+
+      for (const labName of labNames) {
+        const lab = findLaboratoryByName(laboratories, labName);
+        if (matchesAssignedLab(lab)) {
+          return true;
+        }
+      }
+
+      const equipment = getEquipmentFromLookup(equipmentLookup, source);
+      if (equipment) {
+        const equipmentLabIdentifiers = [
+          equipment.labRecordId,
+          equipment.labId,
+          equipment.labID,
+          equipment.laboratoryId,
+          equipment.laboratoryID
+        ].filter(Boolean);
+
+        for (const identifier of equipmentLabIdentifiers) {
+          if (assignedLabIds.includes(identifier)) {
+            return true;
+          }
+
+          const lab = findLaboratoryByIdentifier(laboratories, identifier);
+          if (matchesAssignedLab(lab)) {
+            return true;
+          }
+        }
+
+        const equipmentLab =
+          equipment.laboratory ||
+          equipment.laboratoryName ||
+          equipment.labName ||
+          equipment.lab;
+
+        if (equipmentLab) {
+          const lab = findLaboratoryByName(laboratories, equipmentLab);
+          if (matchesAssignedLab(lab)) {
+            return true;
+          }
+        }
+      }
+
+      return false;
+    };
+
+    if (checkSource(record)) {
+      return true;
+    }
+
+    if (record.details?.originalRequest && checkSource(record.details.originalRequest)) {
+      return true;
+    }
+
+    return false;
+  };
+
+  const filterDataByLaboratories = (data, laboratories, assignedLabIds, equipmentLookup) => {
+    if (!data || typeof data !== 'object') return {};
+
+    return Object.keys(data).reduce((filtered, key) => {
+      const entry = data[key];
+      if (recordBelongsToAssignedLabs(entry, laboratories, assignedLabIds, equipmentLookup)) {
+        filtered[key] = entry;
+      }
+      return filtered;
+    }, {});
+  };
+
   const loadAnalyticsData = async () => {
     try {
       setLoading(true);
       const { get } = await import('firebase/database');
       
       // Load all necessary data
-      const [borrowRequestsSnapshot, historySnapshot, categoriesSnapshot] = await Promise.all([
+      const [borrowRequestsSnapshot, historySnapshot, categoriesSnapshot, laboratoriesSnapshot] = await Promise.all([
         get(ref(database, 'borrow_requests')),
         get(ref(database, 'history')),
-        get(ref(database, 'equipment_categories'))
+        get(ref(database, 'equipment_categories')),
+        get(ref(database, 'laboratories'))
       ]);
 
       const borrowRequests = borrowRequestsSnapshot.val() || {};
       const history = historySnapshot.val() || {};
       const categories = categoriesSnapshot.val() || {};
-      
+      const laboratoriesData = laboratoriesSnapshot.val() || {};
+      const laboratories = Object.keys(laboratoriesData).map(key => ({
+        id: key,
+        ...laboratoriesData[key]
+      }));
+
       console.log("Raw categories data:", categories);
       console.log("Categories keys:", Object.keys(categories));
       
       // Load equipment data from all categories
       const equipment = await loadAllEquipment(categories);
 
+      const assignedLabIds = isAdmin() ? null : (getAssignedLaboratoryIds?.() || []);
+      const equipmentLookup = buildEquipmentLookup(equipment);
+
+      const filteredBorrowRequests = isAdmin() || !assignedLabIds?.length
+        ? borrowRequests
+        : filterDataByLaboratories(borrowRequests, laboratories, assignedLabIds, equipmentLookup);
+
+      const filteredHistory = isAdmin() || !assignedLabIds?.length
+        ? history
+        : filterDataByLaboratories(history, laboratories, assignedLabIds, equipmentLookup);
+
       // Process analytics data
-      const processedData = processAnalyticsData(borrowRequests, equipment, history, categories, selectedPeriod);
+      const processedData = processAnalyticsData(
+        filteredBorrowRequests,
+        equipment,
+        filteredHistory,
+        categories,
+        selectedPeriod
+      );
       console.log("Processed analytics data:", processedData);
       setAnalyticsData(processedData);
       

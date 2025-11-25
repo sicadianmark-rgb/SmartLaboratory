@@ -5,7 +5,8 @@ import {
   ref, 
   get, 
   update,
-  set
+  set,
+  remove
 } from "firebase/database";
 import { 
   createUserWithEmailAndPassword,
@@ -48,6 +49,21 @@ export default function UserManagement({ onRedirectToUsers }) {
     admin: "Admin",
     laboratory_manager: "Lab In Charge",
     student: "Student"
+  };
+
+  const handleDelete = async (user) => {
+    const confirmDelete = window.confirm(`Delete ${user.name}? This action cannot be undone.`);
+    if (!confirmDelete) return;
+
+    try {
+      const userRef = ref(database, `users/${user.id}`);
+      await remove(userRef);
+      setUsers(prev => prev.filter(u => u.id !== user.id));
+      alert(`User ${user.name} deleted successfully.`);
+    } catch (error) {
+      console.error("Error deleting user:", error);
+      alert("Failed to delete user. Please try again.");
+    }
   };
   const getRoleLabel = (role) => roleLabels[role] || role;
   const statuses = ["Active", "Inactive", "Pending"];
@@ -510,7 +526,14 @@ export default function UserManagement({ onRedirectToUsers }) {
                       title="Edit User"
                     >
                       ✏️ Edit
-                    </button>      
+                    </button>
+                    <button
+                      className="btn btn-sm btn-danger"
+                      onClick={() => handleDelete(user)}
+                      title="Delete User"
+                    >
+                      🗑️ Delete
+                    </button>
                   </div>
                 </td>
               </tr>

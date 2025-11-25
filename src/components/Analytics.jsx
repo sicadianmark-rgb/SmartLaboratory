@@ -104,6 +104,71 @@ export default function Analytics() {
     labelStyle: chartTooltipLabelStyle
   };
 
+  const LOST_CAUSE_SENTENCES = {
+    'Forgotten / Misplaced': {
+      text: 'The most common cause is Forgotten / Misplaced because students often juggle multiple responsibilities and activities throughout the day, making it surprisingly easy to accidentally leave equipment behind in crowded lab spaces or lose track of items after moving between different work areas.'
+    },
+    'Stolen': {
+      text: 'The most common cause is Stolen because some individuals see an opportunity to take equipment for personal use, banking on the fact that busy laboratory environments make it difficult to track who borrowed what or to notice when items quietly disappear.'
+    },
+    'Unknown': {
+      text: 'The most common cause is Other because insufficient documentation and vague incident reports consistently prevent laboratory staff from identifying specific patterns or understanding the true circumstances behind each missing item.'
+    }
+  };
+
+  const DAMAGE_CAUSE_SENTENCES = {
+    'Cracked': {
+      text: 'The most common cause is Cracked because laboratory glassware and delicate instruments are inherently fragile, and the constant cycle of handling, temperature fluctuations, and accidental impacts naturally leads to stress fractures and cracks over time.'
+    },
+    'Broken': {
+      text: 'The most common cause is Broken because equipment frequently experiences drops, collisions, or excessive force during active use, causing complete structural failure or rendering the item completely non-functional.'
+    },
+    'Chipped': {
+      text: 'The most common cause is Chipped because items regularly make contact with hard surfaces, table edges, or other equipment during normal use and storage, resulting in small fragments breaking off at impact points.'
+    },
+    'Scratched': {
+      text: 'The most common cause is Scratched because equipment is routinely dragged across work surfaces, cleaned with abrasive materials, or stored in contact with other items, leading to surface wear and visible scratching.'
+    },
+    'Other': {
+      text: 'The most common cause is Other because borrowers often use equipment in unconventional or improper ways that produce damage types not easily classified, and they frequently fail to provide clear explanations when reporting the condition.'
+    }
+  };
+
+  const LATE_RETURN_SENTENCES = {
+    'Forgot to Return': {
+      text: "The most common cause is Forgot to Return because students manage multiple deadlines and commitments simultaneously, making it easy to lose track of when borrowed equipment is due back, especially when the items aren't needed for immediate tasks."
+    },
+    'Extended Use': {
+      text: 'The most common cause is Extended Use because students underestimate how long experiments or projects will take, or they encounter unexpected complications that require them to keep the equipment longer than originally planned.'
+    },
+    'Unexpected Conflict': {
+      text: 'The most common cause is Unexpected Conflict because emergencies, sudden schedule changes, or unforeseen personal obligations arise without warning, preventing students from returning equipment by the expected deadline despite their initial intentions.'
+    },
+    'Other': {
+      text: 'The most common cause is Other because students frequently return items late without providing any explanation or offer only vague, non-specific reasons that do not fit into clear patterns, making it impossible to address the underlying issues systematically.'
+    }
+  };
+
+  const getTopReasonInsight = (counts = {}, sentenceMap = {}) => {
+    const entries = Object.entries(counts);
+    if (entries.length === 0) return null;
+
+    const [topKey, topCount] = entries.reduce(
+      (best, current) => (current[1] > best[1] ? current : best),
+      ['', -Infinity]
+    );
+
+    if (!topKey || topCount <= 0 || !sentenceMap[topKey]) {
+      return null;
+    }
+
+    return {
+      key: topKey,
+      count: topCount,
+      text: sentenceMap[topKey].text
+    };
+  };
+
   useEffect(() => {
     loadAnalyticsData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1544,6 +1609,7 @@ if (
                     {(() => {
                       const lostCauses = analyticsData.diagnosticAnalytics.lostItems?.causes || {};
                       const totalLost = analyticsData.diagnosticAnalytics.lostItems?.totalLostItems || 0;
+                      const topLostInsight = getTopReasonInsight(lostCauses, LOST_CAUSE_SENTENCES);
                       const reasonConfig = [
                         {
                           key: 'Forgotten / Misplaced',
@@ -1566,26 +1632,37 @@ if (
                       ];
 
                       return (
-                        <div className="reason-breakdown-grid">
-                          {reasonConfig.map(reason => {
-                            const count = lostCauses[reason.key] || 0;
-                            const percentage = totalLost > 0 ? Math.round((count / totalLost) * 100) : 0;
-                            return (
-                              <div key={reason.key} className="reason-item">
-                                <div className="reason-item-header">
-                                  <span className="reason-badge" style={{ backgroundColor: reason.badgeColor }} />
-                                  <div>
-                                    <div className="reason-label">{reason.label}</div>
-                                    <div className="reason-description">{reason.description}</div>
+                        <div className="reason-breakdown-content">
+                          {topLostInsight && (
+                            <div className="insight-support-card">
+                              <div className="insight-support-icon">💡</div>
+                              <div className="insight-support-body">
+                                <p className="insight-support-label">{`${topLostInsight.key} Insight`}</p>
+                                <p className="insight-support-text">{topLostInsight.text}</p>
+                              </div>
+                            </div>
+                          )}
+                          <div className="reason-breakdown-grid">
+                            {reasonConfig.map(reason => {
+                              const count = lostCauses[reason.key] || 0;
+                              const percentage = totalLost > 0 ? Math.round((count / totalLost) * 100) : 0;
+                              return (
+                                <div key={reason.key} className="reason-item">
+                                  <div className="reason-item-header">
+                                    <span className="reason-badge" style={{ backgroundColor: reason.badgeColor }} />
+                                    <div>
+                                      <div className="reason-label">{reason.label}</div>
+                                      <div className="reason-description">{reason.description}</div>
+                                    </div>
+                                  </div>
+                                  <div className="reason-metrics">
+                                    <div className="reason-count">{count}</div>
+                                    <div className="reason-percentage">{percentage}%</div>
                                   </div>
                                 </div>
-                                <div className="reason-metrics">
-                                  <div className="reason-count">{count}</div>
-                                  <div className="reason-percentage">{percentage}%</div>
-                                </div>
-                              </div>
-                            );
-                          })}
+                              );
+                            })}
+                          </div>
                         </div>
                       );
                     })()}
@@ -1694,6 +1771,7 @@ if (
                     {(() => {
                       const damageTypes = analyticsData.diagnosticAnalytics.equipmentDamage?.damageByType || {};
                       const totalDamage = analyticsData.diagnosticAnalytics.equipmentDamage?.totalDamageIncidents || 0;
+                      const topDamageInsight = getTopReasonInsight(damageTypes, DAMAGE_CAUSE_SENTENCES);
                       const typeConfig = [
                         {
                           key: 'Cracked',
@@ -1728,26 +1806,37 @@ if (
                       ];
 
                       return (
-                        <div className="reason-breakdown-grid">
-                          {typeConfig.map(type => {
-                            const count = damageTypes[type.key] || 0;
-                            const percentage = totalDamage > 0 ? Math.round((count / totalDamage) * 100) : 0;
-                            return (
-                              <div key={type.key} className="reason-item">
-                                <div className="reason-item-header">
-                                  <span className="reason-badge" style={{ backgroundColor: type.badgeColor }} />
-                                  <div>
-                                    <div className="reason-label">{type.label}</div>
-                                    <div className="reason-description">{type.description}</div>
+                        <div className="reason-breakdown-content">
+                          {topDamageInsight && (
+                            <div className="insight-support-card">
+                              <div className="insight-support-icon">💡</div>
+                              <div className="insight-support-body">
+                                <p className="insight-support-label">{`${topDamageInsight.key} Insight`}</p>
+                                <p className="insight-support-text">{topDamageInsight.text}</p>
+                              </div>
+                            </div>
+                          )}
+                          <div className="reason-breakdown-grid">
+                            {typeConfig.map(type => {
+                              const count = damageTypes[type.key] || 0;
+                              const percentage = totalDamage > 0 ? Math.round((count / totalDamage) * 100) : 0;
+                              return (
+                                <div key={type.key} className="reason-item">
+                                  <div className="reason-item-header">
+                                    <span className="reason-badge" style={{ backgroundColor: type.badgeColor }} />
+                                    <div>
+                                      <div className="reason-label">{type.label}</div>
+                                      <div className="reason-description">{type.description}</div>
+                                    </div>
+                                  </div>
+                                  <div className="reason-metrics">
+                                    <div className="reason-count">{count}</div>
+                                    <div className="reason-percentage">{percentage}%</div>
                                   </div>
                                 </div>
-                                <div className="reason-metrics">
-                                  <div className="reason-count">{count}</div>
-                                  <div className="reason-percentage">{percentage}%</div>
-                                </div>
-                              </div>
-                            );
-                          })}
+                              );
+                            })}
+                          </div>
                         </div>
                       );
                     })()}
@@ -1892,6 +1981,7 @@ if (
                   {(() => {
                     const reasonTotals = analyticsData.diagnosticAnalytics.lateReturns?.reasons || {};
                     const totalLateReturns = analyticsData.diagnosticAnalytics.lateReturns?.totalLateReturns || 0;
+                    const topLateInsight = getTopReasonInsight(reasonTotals, LATE_RETURN_SENTENCES);
                     const reasonConfig = [
                       {
                         key: 'Forgot to Return',
@@ -1920,26 +2010,37 @@ if (
                     ];
 
                     return (
-                      <div className="reason-breakdown-grid">
-                        {reasonConfig.map(reason => {
-                          const count = reasonTotals[reason.key] || 0;
-                          const percentage = totalLateReturns > 0 ? Math.round((count / totalLateReturns) * 100) : 0;
-                          return (
-                            <div key={reason.key} className="reason-item">
-                              <div className="reason-item-header">
-                                <span className="reason-badge" style={{ backgroundColor: reason.badgeColor }} />
-                                <div>
-                                  <div className="reason-label">{reason.label}</div>
-                                  <div className="reason-description">{reason.description}</div>
+                      <div className="reason-breakdown-content">
+                        {topLateInsight && (
+                          <div className="insight-support-card">
+                            <div className="insight-support-icon">💡</div>
+                            <div className="insight-support-body">
+                              <p className="insight-support-label">{`${topLateInsight.key} Insight`}</p>
+                              <p className="insight-support-text">{topLateInsight.text}</p>
+                            </div>
+                          </div>
+                        )}
+                        <div className="reason-breakdown-grid">
+                          {reasonConfig.map(reason => {
+                            const count = reasonTotals[reason.key] || 0;
+                            const percentage = totalLateReturns > 0 ? Math.round((count / totalLateReturns) * 100) : 0;
+                            return (
+                              <div key={reason.key} className="reason-item">
+                                <div className="reason-item-header">
+                                  <span className="reason-badge" style={{ backgroundColor: reason.badgeColor }} />
+                                  <div>
+                                    <div className="reason-label">{reason.label}</div>
+                                    <div className="reason-description">{reason.description}</div>
+                                  </div>
+                                </div>
+                                <div className="reason-metrics">
+                                  <div className="reason-count">{count}</div>
+                                  <div className="reason-percentage">{percentage}%</div>
                                 </div>
                               </div>
-                              <div className="reason-metrics">
-                                <div className="reason-count">{count}</div>
-                                <div className="reason-percentage">{percentage}%</div>
-                              </div>
-                            </div>
-                          );
-                        })}
+                            );
+                          })}
+                        </div>
                       </div>
                     );
                   })()}

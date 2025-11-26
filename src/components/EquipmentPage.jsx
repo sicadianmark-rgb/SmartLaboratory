@@ -595,6 +595,19 @@ export default function EquipmentPage({ onMaintenanceComplete }) {
     }
   };
 
+  // Keep category stored counts (totalCount, availableCount) in sync with
+  // the actual equipments data so the category cards immediately reflect
+  // the same numbers as the banner after login.
+  useEffect(() => {
+    if (!categories || categories.length === 0) return;
+
+    categories.forEach((category) => {
+      if (category && category.id) {
+        updateCategoryCounts(category.id);
+      }
+    });
+  }, [categories]);
+
   // Helper function to get user role from userId
   const getUserRole = (userId) => {
     if (!userId) return null;
@@ -1250,14 +1263,61 @@ export default function EquipmentPage({ onMaintenanceComplete }) {
                 </div>
 
                 <div className="category-stats">
-                  <div className="stat-item">
-                    <div className="stat-number">{category.totalCount || 0}</div>
-                    <div className="stat-label">Total Equipment</div>
-                  </div>
-                  <div className="stat-item">
-                    <div className="stat-number available">{category.availableCount || 0}</div>
-                    <div className="stat-label">Available</div>
-                  </div>
+                  {(() => {
+                    const isSelected = category.id === selectedCategory;
+
+                    // For the selected category, use the same equipments array
+                    // that the banner uses so counts match exactly.
+                    let equipmentsSource;
+                    if (isSelected && equipments.length > 0) {
+                      equipmentsSource = equipments;
+                    } else {
+                      // For other categories, derive from category.equipments
+                      // and apply the same lab-based filtering rules used in
+                      // fetchEquipments for non-admin users.
+                      let equipmentsInCategory = category.equipments
+                        ? Object.values(category.equipments)
+                        : [];
+
+                      if (!isAdmin()) {
+                        const assignedLabIds = getAssignedLaboratoryIds();
+                        if (assignedLabIds) {
+                          equipmentsInCategory = equipmentsInCategory.filter((equipment) => {
+                            const lab = laboratories.find((l) => l.labId === equipment.labId);
+                            return lab && assignedLabIds.includes(lab.id);
+                          });
+                        }
+                      }
+
+                      equipmentsSource = equipmentsInCategory;
+                    }
+
+                    const derivedTotal = equipmentsSource.reduce((sum, item) => {
+                      const quantity = Number(item.quantity) || 1;
+                      return sum + quantity;
+                    }, 0);
+
+                    const derivedBorrowed = equipmentsSource.reduce((sum, item) => {
+                      const quantityBorrowed = Number(item.quantity_borrowed) || 0;
+                      return sum + quantityBorrowed;
+                    }, 0);
+
+                    const totalEquipment = derivedTotal;
+                    const availableEquipment = Math.max(derivedTotal - derivedBorrowed, 0);
+
+                    return (
+                      <>
+                        <div className="stat-item">
+                          <div className="stat-number">{totalEquipment}</div>
+                          <div className="stat-label">Total Equipment</div>
+                        </div>
+                        <div className="stat-item">
+                          <div className="stat-number available">{availableEquipment}</div>
+                          <div className="stat-label">Available</div>
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
 
                 <div className="category-actions">

@@ -193,6 +193,28 @@ export default function CategoriesTab({ categories, onCategorySelect, onCategori
 
 // Category Card Component
 function CategoryCard({ category, onEdit, onDelete, onSelect }) {
+  // Derive counts from live equipments data when available so it stays
+  // in sync with the dashboard/banner statistics.
+  const equipments = category.equipments ? Object.values(category.equipments) : [];
+
+  const derivedTotal = equipments.reduce((sum, eq) => {
+    const quantity = Number(eq.quantity) || 1;
+    return sum + quantity;
+  }, 0);
+
+  const derivedBorrowed = equipments.reduce((sum, eq) => {
+    const quantityBorrowed = Number(eq.quantity_borrowed) || 0;
+    return sum + quantityBorrowed;
+  }, 0);
+
+  const totalEquipment = equipments.length > 0
+    ? derivedTotal
+    : (category.totalCount || 0);
+
+  const availableEquipment = equipments.length > 0
+    ? Math.max(derivedTotal - derivedBorrowed, 0)
+    : (category.availableCount || 0);
+
   return (
     <div className="category-card">
       <div className="category-card-header">
@@ -203,11 +225,11 @@ function CategoryCard({ category, onEdit, onDelete, onSelect }) {
 
       <div className="category-stats">
         <div className="stat-item">
-          <div className="stat-value">{category.totalCount || 0}</div>
+          <div className="stat-value">{totalEquipment}</div>
           <div className="stat-label">Total Equipment</div>
         </div>
         <div className="stat-item">
-          <div className="stat-value available">{category.availableCount || 0}</div>
+          <div className="stat-value available">{availableEquipment}</div>
           <div className="stat-label">Available</div>
         </div>
       </div>

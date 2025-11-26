@@ -14,7 +14,6 @@ export default function EquipmentMaintenance({ categories, equipments, selectedC
   const [activeSubTab, setActiveSubTab] = useState("records");
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
-  const [filterPriority, setFilterPriority] = useState("all");
 
   const [maintenanceFormData, setMaintenanceFormData] = useState({
     equipmentId: "",
@@ -116,8 +115,7 @@ export default function EquipmentMaintenance({ categories, equipments, selectedC
       const maintenanceData = {
         ...maintenanceFormData,
         categoryId: selectedCategory,
-        status: "Completed",
-        priority: "Medium"
+        status: "Completed"
       };
 
       if (editingMaintenance) {
@@ -182,7 +180,6 @@ export default function EquipmentMaintenance({ categories, equipments, selectedC
       const scheduleData = {
         ...scheduleFormData,
         categoryId: selectedCategory,
-        priority: "Medium",
         status: "Scheduled"
       };
 
@@ -277,15 +274,6 @@ export default function EquipmentMaintenance({ categories, equipments, selectedC
     return equipment ? `${equipment.name} (${equipment.serialNumber})` : "Unknown Equipment";
   };
 
-  const getPriorityColor = (priority) => {
-    switch (priority) {
-      case "High": return "#ef4444";
-      case "Medium": return "#f59e0b";
-      case "Low": return "#10b981";
-      default: return "#6b7280";
-    }
-  };
-
   const getMaintenanceTypeColor = (type) => {
     switch (type) {
       case "Preventive": return "#10b981";
@@ -307,10 +295,86 @@ export default function EquipmentMaintenance({ categories, equipments, selectedC
       record.description?.toLowerCase().includes(searchTerm.toLowerCase());
     
     const matchesStatus = filterStatus === "all" || record.status === filterStatus;
-    const matchesPriority = filterPriority === "all" || record.priority === filterPriority;
     
-    return matchesSearch && matchesStatus && matchesPriority;
+    return matchesSearch && matchesStatus;
   });
+
+  const handleExportMaintenanceToPDF = () => {
+    if (filteredMaintenanceRecords.length === 0) {
+      alert("No maintenance records to export");
+      return;
+    }
+
+    const title = "Equipment Maintenance Records";
+    const dateStr = new Date().toLocaleString();
+
+    const rowsHtml = filteredMaintenanceRecords.map((record, index) => {
+      const equipmentName = getEquipmentName(record.equipmentId);
+      const datePerformed = record.datePerformed || "—";
+      const status = record.status || "Completed";
+      const type = record.type || "Preventive";
+
+      return `
+        <tr>
+          <td style="padding: 8px; border: 1px solid #e5e7eb; font-size: 12px;">${index + 1}</td>
+          <td style="padding: 8px; border: 1px solid #e5e7eb; font-size: 12px;">${equipmentName}</td>
+          <td style="padding: 8px; border: 1px solid #e5e7eb; font-size: 12px;">${type}</td>
+          <td style="padding: 8px; border: 1px solid #e5e7eb; font-size: 12px;">${status}</td>
+          <td style="padding: 8px; border: 1px solid #e5e7eb; font-size: 12px;">${datePerformed}</td>
+          <td style="padding: 8px; border: 1px solid #e5e7eb; font-size: 12px;">${record.description || ""}</td>
+        </tr>
+      `;
+    }).join("");
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charSet="utf-8" />
+        <title>${title}</title>
+        <style>
+          body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 24px; }
+          h1 { font-size: 20px; margin-bottom: 4px; }
+          p { font-size: 12px; color: #6b7280; margin-top: 0; margin-bottom: 16px; }
+          table { border-collapse: collapse; width: 100%; }
+          thead { background-color: #f3f4f6; }
+          th { text-align: left; padding: 8px; border: 1px solid #e5e7eb; font-size: 12px; }
+        </style>
+      </head>
+      <body>
+        <h1>${title}</h1>
+        <p>Generated on ${dateStr}</p>
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Equipment</th>
+              <th>Type</th>
+              <th>Status</th>
+              <th>Date</th>
+              <th>Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml}
+          </tbody>
+        </table>
+      </body>
+      </html>
+    `;
+
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      alert("Unable to open print window. Please allow pop-ups and try again.");
+      return;
+    }
+
+    printWindow.document.open();
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+  };
 
   // Filter scheduled maintenance - exclude completed items
   const filteredScheduledMaintenance = scheduledMaintenance.filter(schedule => {
@@ -329,9 +393,7 @@ export default function EquipmentMaintenance({ categories, equipments, selectedC
       getEquipmentName(schedule.equipmentId).toLowerCase().includes(searchTerm.toLowerCase()) ||
       schedule.description?.toLowerCase().includes(searchTerm.toLowerCase());
     
-    const matchesPriority = filterPriority === "all" || (schedule.priority || "Medium") === filterPriority;
-    
-    return matchesSearch && matchesPriority;
+    return matchesSearch;
   });
 
   const today = new Date();
@@ -367,10 +429,9 @@ export default function EquipmentMaintenance({ categories, equipments, selectedC
               style={{
                 background: 'white',
                 border: isMaintenanceOverdue(schedule.scheduledDate) ? '1px solid #ef4444' : '1px solid #e5e7eb',
-                borderLeft: isMaintenanceOverdue(schedule.scheduledDate) ? '4px solid #ef4444' : '1px solid #e5e7eb',
                 borderRadius: '12px',
                 padding: '1.5rem',
-                boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1)'
+                boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)'
               }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem', gap: '1rem' }}>
@@ -390,16 +451,6 @@ export default function EquipmentMaintenance({ categories, equipments, selectedC
                     color: getMaintenanceTypeColor(schedule.type)
                   }}>
                     {schedule.type}
-                  </span>
-                  <span style={{
-                    padding: '0.25rem 0.75rem',
-                    borderRadius: '20px',
-                    fontSize: '0.75rem',
-                    fontWeight: '600',
-                    backgroundColor: getPriorityColor(schedule.priority || "Medium") + "20",
-                    color: getPriorityColor(schedule.priority || "Medium")
-                  }}>
-                    {schedule.priority || "Medium"}
                   </span>
                   {isMaintenanceOverdue(schedule.scheduledDate) && (
                     <span style={{
@@ -533,7 +584,7 @@ export default function EquipmentMaintenance({ categories, equipments, selectedC
           }}>🔍</span>
         </div>
         
-        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
           {activeSubTab === "records" && (
             <select
               value={filterStatus}
@@ -546,17 +597,17 @@ export default function EquipmentMaintenance({ categories, equipments, selectedC
               <option value="Pending">Pending</option>
             </select>
           )}
-          
-          <select
-            value={filterPriority}
-            onChange={(e) => setFilterPriority(e.target.value)}
-            style={{ padding: '0.5rem', border: '1px solid #d1d5db', borderRadius: '6px' }}
-          >
-            <option value="all">All Priority</option>
-            <option value="High">High</option>
-            <option value="Medium">Medium</option>
-            <option value="Low">Low</option>
-          </select>
+          {activeSubTab === "records" && (
+            <button
+              type="button"
+              onClick={handleExportMaintenanceToPDF}
+              className="btn btn-outline"
+              style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+            >
+              <span className="btn-icon">🧾</span>
+              Export to PDF
+            </button>
+          )}
         </div>
       </div>
 
@@ -598,16 +649,6 @@ export default function EquipmentMaintenance({ categories, equipments, selectedC
                         color: getMaintenanceTypeColor(record.type)
                       }}>
                         {record.type}
-                      </span>
-                      <span style={{
-                        padding: '0.25rem 0.75rem',
-                        borderRadius: '20px',
-                        fontSize: '0.75rem',
-                        fontWeight: '600',
-                        backgroundColor: getPriorityColor(record.priority || "Medium") + "20",
-                        color: getPriorityColor(record.priority || "Medium")
-                      }}>
-                        {record.priority || "Medium"}
                       </span>
                     </div>
                   </div>

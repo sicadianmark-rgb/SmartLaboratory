@@ -653,6 +653,31 @@ export default function EquipmentPage({ onMaintenanceComplete }) {
     };
   };
 
+  // Count how many times an equipment has been reported as lost/missing
+  const getLostOrMissingCount = (equipmentName) => {
+    if (!equipmentName || !historyData || historyData.length === 0) return 0;
+
+    const normalizedName = equipmentName.toLowerCase();
+
+    return historyData.filter(entry => {
+      const entryName = (entry.equipmentName || '').toLowerCase();
+      if (entryName !== normalizedName) return false;
+
+      const condition = (entry.condition || '').toLowerCase();
+      if (condition.includes('lost') || condition.includes('missing') || condition === 'item lost/missing') {
+        return true;
+      }
+
+      const notesText = (
+        entry.returnDetails?.notes ||
+        entry.details?.notes ||
+        ''
+      ).toLowerCase();
+
+      return notesText.includes('lost') || notesText.includes('missing');
+    }).length;
+  };
+
   // Calculate usage statistics
   const calculateUsageStatistics = (equipmentName) => {
     const equipmentHistory = historyData.filter(entry => 
@@ -1360,20 +1385,32 @@ export default function EquipmentPage({ onMaintenanceComplete }) {
                           </td>
                           <td className="quantity-cell">
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                              <span className="quantity-badge">
-                                Total: {Number(equipment.quantity) || 1}
-                              </span>
-                              {equipment.quantity_borrowed !== undefined && equipment.quantity_borrowed !== null && (
-                                <span style={{ 
-                                  fontSize: '11px',
-                                  color: (Number(equipment.quantity) || 1) - (equipment.quantity_borrowed || 0) > 0 
-                                    ? '#10b981' 
-                                    : '#ef4444',
-                                  fontWeight: '500'
-                                }}>
-                                  Available: {(Number(equipment.quantity) || 1) - (equipment.quantity_borrowed || 0)}
-                                </span>
-                              )}
+                              {(() => {
+                                const originalTotal = Number(equipment.quantity) || 1;
+                                const lostCount = getLostOrMissingCount(equipment.name);
+                                const effectiveTotal = Math.max(0, originalTotal - lostCount);
+                                const borrowed = Number(equipment.quantity_borrowed) || 0;
+                                const effectiveAvailable = Math.max(0, effectiveTotal - borrowed);
+
+                                return (
+                                  <>
+                                    <span className="quantity-badge">
+                                      Total: {effectiveTotal}
+                                    </span>
+                                    {equipment.quantity_borrowed !== undefined && equipment.quantity_borrowed !== null && (
+                                      <span style={{ 
+                                        fontSize: '11px',
+                                        color: effectiveAvailable > 0 
+                                          ? '#10b981' 
+                                          : '#ef4444',
+                                        fontWeight: '500'
+                                      }}>
+                                        Available: {effectiveAvailable}
+                                      </span>
+                                    )}
+                                  </>
+                                );
+                              })()}
                             </div>
                           </td>
                           <td>

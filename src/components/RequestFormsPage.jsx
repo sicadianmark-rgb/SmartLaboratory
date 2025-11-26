@@ -1042,10 +1042,18 @@ export default function RequestFormsPage() {
       Number.isFinite(returnedQuantity) && returnedQuantity < borrowedQuantity;
 
     const conditionText = (() => {
+      const baseCondition = returnDetails?.condition;
+
+      // When quantity returned is less than borrowed, still respect explicit lost/missing
+      // so that analytics can treat this as a lost-item case.
       if (hasInsufficientReturn) {
+        if (baseCondition === "lost" || baseCondition === "missing") {
+          return "Item lost/missing (insufficient return)";
+        }
         return "Item borrowed are Insufficient";
       }
-      switch (returnDetails?.condition) {
+
+      switch (baseCondition) {
         case "good":
           return "Returned in good condition";
         case "damaged":

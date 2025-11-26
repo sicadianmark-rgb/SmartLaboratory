@@ -883,7 +883,7 @@ const categorizeLostItem = (text) => {
     lowerText.includes('slipped my mind') ||
     lowerText.includes('disregarded') ||
     lowerText.includes('disregarding') ||
-    lowerText.includes('unremembered') ||
+    lowerText.includes('remember') ||
     lowerText.includes('ignore') ||
     lowerText.includes('ignores') ||
     lowerText.includes('ignored') ||
